@@ -6,6 +6,33 @@
 > review mutation semantics, auth/SSE/local-dev/migrations, and few-shot output examples
 > (the `extracting_style` stage + unified detail profile).
 
+## Table of contents
+
+- [Overview](#overview)
+- [Goals](#goals)
+- [Non-goals for v1](#non-goals-for-v1)
+- [Decided defaults](#decided-defaults)
+- [Architecture](#architecture)
+- [Repository structure](#repository-structure)
+- [Domain model and job lifecycle](#domain-model-and-job-lifecycle)
+- [Pipeline stages (overview)](#pipeline-stages-overview)
+- [Data model (PostgreSQL)](#data-model-postgresql)
+- [Pipeline (detailed algorithms)](#pipeline-detailed-algorithms)
+- [API contract](#api-contract)
+- [Frontend (Next.js App Router)](#frontend-nextjs-app-router)
+- [Latency strategy](#latency-strategy)
+- [Cost model](#cost-model)
+- [Data retention](#data-retention)
+- [Review mutation semantics](#review-mutation-semantics)
+- [Deployment and CI/CD](#deployment-and-cicd)
+- [Security and configuration](#security-and-configuration)
+- [Reliability and error handling](#reliability-and-error-handling)
+- [Testing and evaluation](#testing-and-evaluation)
+- [Export format](#export-format)
+- [Open questions (low-risk, defer to implementation)](#open-questions-low-risk-defer-to-implementation)
+
+---
+
 ## Overview
 
 Video-to-Note is a single-user, Azure-first web application that turns public conference
@@ -284,161 +311,6 @@ automatic run.
 
 ---
 
-## Pipeline stages (overview)
-
-The worker runs a fixed sequence of stages (the job state machine below). Each stage owns one
-shared package and writes timestamped artifacts that later stages consume. This section explains
-*what each stage does and how it works*; the precise algorithms (fusion scoring, snapping, token
-budgets) live in **Pipeline (detailed algorithms)** further down.
-
-### `resolving` (`vtn_ingest`)
-
-**What** — Turn a submitted URL into a validated, canonical source we know how to fetch.
-
-**How** — A registry of `SourceResolver` adapters (`YouTubeResolver`, `MicrosoftEventResolver`
-for Build/Ignite session pages, `GenericResolver` fallback) each answer `can_handle(url)`; the
-first match runs `resolve(url)` to produce the canonical URL, source type, title, duration, and
-a media locator. The stage validates the video is public and reachable (else `unsupported_url` /
-`video_unavailable`), then writes the resolved `canonical_url` onto the placeholder `videos`
-row. **Re-submit dedup**: if another `videos` row already has this `canonical_url` with a present
-proxy + transcript, the worker re-points `job.video_id` to that existing row and deletes the
-placeholder — so the later media/transcript stages skip-if-present. This cuts cost and latency
-on re-runs of the same session with different note settings.
-
-### `acquiring_media` (`vtn_ingest`)
-
-**What** — Get exactly one local copy of the video that everything else reads from.
-
-**How** — Download a single **proxy** via yt-dlp (or the source's media URL) at a capped
-resolution (default 720p) to bound storage/egress while keeping screenshots legible, and store
-it at `videos.proxy_blob_path`. The proxy is the **single source of truth**: automated frame
-sampling, review scrubbing, and manual frame capture all read the same pixels, which is what
-keeps transcript timestamps and frame timestamps on one clock. Skip-if-present makes this
-resumable.
-
-### `transcribing` (`vtn_transcript`)
-
-**What** — Produce a normalized, timestamped transcript on the video timeline.
-
-**How** — A priority chain of `TranscriptProvider`s, best-quality first: source captions →
-YouTube captions → Azure AI Speech ASR (from the proxy audio). The first that succeeds wins;
-output is normalized to `transcript_spans` (start/end seconds, text, speaker where available).
-The chosen `source` is recorded and surfaced in review — ASR is slower and lower quality, so
-falling back to it raises a non-blocking `warning` rather than silently downgrading. Runs **in
-parallel** with `indexing_visual` (both depend only on the proxy).
-
-This stage *acquires* the transcript only — it does no chunking or embedding. There is
-deliberately no symmetric "transcript indexing" stage: the windowing + embedding of the
-transcript is cheap and used by a single detector, so it happens inside `segmenting` (the
-`SemanticShiftDetector`), not here.
-
-### `indexing_visual` (`vtn_visual`)
-
-**What** — Extract a timeline of `visual_events` (slide changes, title/OCR changes, demos,
-keyframes, low-speech/high-visual moments) from the video frames.
-
-> **"Indexing" here is signal extraction, not a search index.** Neither this stage nor the
-> transcript stage builds a searchable / vector index, and there is no semantic-search feature in
-> v1. Both emit timestamped rows that feed `segmenting`. (The transcript embeddings used later
-> exist only so the `SemanticShiftDetector` can spot a cosine-similarity drop between adjacent
-> windows — a boundary signal, not a query index.)
-
-**How** — Two-tier ffmpeg sampling for latency: a coarse pass (~1 fps) finds change regions, then
-a fine pass samples densely **only** around those changes. Cheap detectors run over the sampled
-frames, each emitting a `visual_event`:
-
-- **Slide/scene change** — pixel difference / SSIM jump between consecutive frames.
-- **Title/OCR change** — OCR (Azure Vision / Document Intelligence) on candidate frames; the
-  extracted text is stored (`ocr_text`) and reused later as evidence + caption material.
-- **Keyframe candidate** — the settled, representative frame within a shot.
-- **Demo/visual-dense** — sustained high local change rate (typing, scrolling code, animation).
-- **Low-speech/high-visual-change** — visual motion in transcript-sparse windows (silent demo).
-
-A perceptual hash (`phash`) is computed per stored frame so the drafting stage can later drop
-near-duplicate screenshots. There is **no embedding or vector store** here — it is classic CV +
-targeted OCR. Note `vtn_visual` does **double duty**: its events are both boundary hints for
-`segmenting` *and* the candidate pool for screenshots in `drafting`. v1 deliberately does **no
-deep multimodal frame understanding** (no CLIP-style frame embeddings, no vision-LLM slide
-description); upgrading that (Azure AI Video Indexer, Gemini multimodal) is tracked in **Open
-questions**.
-
-**Transcript vs. visual signals**, on the same clock:
-
-| | Transcript (`vtn_transcript` + SemanticShift) | Visual (`vtn_visual`) |
-| --- | --- | --- |
-| Raw material | Caption / ASR text spans | Sampled video frames |
-| Technique | **Embeddings** → cosine drop between windows | **Pixel diff / SSIM + OCR**; no embeddings |
-| Emits | `semantic_shift` / `speaker_change` / `time_gap` | `slide_change` / `title_change` / `demo_change` / `keyframe` / `low_speech_visual` |
-| Second job | — | Also the screenshot candidate pool |
-
-### `extracting_style` (`vtn_style`) — only when examples are provided
-
-**What** — Turn optional user-supplied example notes into a **style profile** that steers both
-segmentation and drafting.
-
-**How** — If the job supplies example markdown (pasted or uploaded `.md`), a one-time LLM
-**extraction** distills each dimension *with a confidence*: a `style_descriptor` (headings,
-prose-vs-bullets, code-block usage, caption style, voice), a `granularity` target (coarse →
-fine), a `density` target (note length + screenshot density), and a `derived_prompt` (the
-implicit instruction the examples imply). A deterministic **resolution** step then merges these
-with the `depth` preset *per dimension*: where the example dimension is confidently inferred it
-wins; otherwise the `depth` preset fills in. The result — the resolved `style_profile` — is
-persisted on the job and emitted as a `style.resolved` event so the UI can show what won (and
-flag an explicit `depth`-vs-example contradiction). Because it depends only on the examples, this
-runs in parallel from job submit and is ready by the time `segmenting` starts; it is skipped
-entirely when no examples (and no saved default) are present. Examples are a **style/format
-reference only — never a source of facts** (a generation guardrail, see drafting). The profile
-can be saved as the user's reusable default.
-
-### `segmenting` (`vtn_segment`)
-
-**What** — Fuse transcript + visual signals into ordered section boundaries with titles, gists,
-and classifications.
-
-**How** — Every signal source implements one `BoundaryDetector` interface emitting
-`BoundaryCandidate`s, so adding a variation is one detector or one config weight — never a
-fusion edit. Deterministic fusion favors **recall** (cluster nearby candidates, score by
-configurable per-signal weights, keep above a threshold, snap boundaries to transcript-span
-starts / slide frames). A single **LLM refinement pass** then adds **precision + labeling**: it
-merges over-segmentation, drops spurious boundaries, and writes each section's title, one-line
-gist, and `text_led | visual_led | mixed` class. The refinement pass is also handed the
-`style_profile`'s **granularity** target, so it collapses the over-segmented candidates to the
-detail level implied by `depth`/examples. The titles + gists become the global outline that
-keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
-budgeting are in the detailed section.)
-
-This stage is also where the transcript is windowed (~20–40s) and embedded — the work a
-"transcript indexing" stage would do — performed inside the `SemanticShiftDetector` rather than
-as a separate stage.
-
-### `drafting` (`vtn_notes`)
-
-**What** — For each section, choose its screenshots and write its markdown note, streaming each
-out as it finishes.
-
-**How** — Screenshot selection scores the section's `visual_events` by type × confidence, dedups
-via `phash` Hamming distance, and caps the count by the profile's **density** (× classification).
-Note generation is **one LLM call per section** (bounded concurrency) fed the section transcript,
-visual/OCR summary, selected screenshots, the resolved **`style_profile`** (style descriptor +
-density + merged derived/custom prompt), and the **continuity context** (global outline + concept
-ledger) so sections stay consistent and non-redundant. Each finished section writes
-`section_notes`, flips to `ready`, and publishes a `section.ready` event over SSE.
-
-### `review_ready`
-
-**What** — All sections drafted; the job is now awaiting human review. No package; it is the
-state the UI switches fully into edit mode on.
-
-### `exported` (`vtn_export`)
-
-**What** — Produce the downloadable artifact.
-
-**How** — Assemble a ZIP from current DB state + Blob assets: `note.md` with relative image
-paths, an `images/` folder, and a `metadata.json` capturing source URL, timestamps, depth, and
-transcript source for audit/re-import.
-
----
-
 ## Repository structure
 
 ```text
@@ -588,6 +460,162 @@ Steps do **not** each update `jobs.stage`:
 - Stage runner checks for an existing valid artifact before doing work (skip-if-present),
   enabling cheap resume after transient failures.
 - Service Bus messages carry `job_id` + `attempt`; the worker is safe to receive duplicates.
+
+---
+
+## Pipeline stages (overview)
+
+The worker runs a fixed sequence of stages (the job state machine in **Domain model and job
+lifecycle**, above). Each stage owns one shared package and writes timestamped artifacts that
+later stages consume. This section explains *what each stage does and how it works*; the precise
+algorithms (fusion scoring, snapping, token budgets) live in **Pipeline (detailed algorithms)**
+further down.
+
+### `resolving` (`vtn_ingest`)
+
+**What** — Turn a submitted URL into a validated, canonical source we know how to fetch.
+
+**How** — A registry of `SourceResolver` adapters (`YouTubeResolver`, `MicrosoftEventResolver`
+for Build/Ignite session pages, `GenericResolver` fallback) each answer `can_handle(url)`; the
+first match runs `resolve(url)` to produce the canonical URL, source type, title, duration, and
+a media locator. The stage validates the video is public and reachable (else `unsupported_url` /
+`video_unavailable`), then writes the resolved `canonical_url` onto the placeholder `videos`
+row. **Re-submit dedup**: if another `videos` row already has this `canonical_url` with a present
+proxy + transcript, the worker re-points `job.video_id` to that existing row and deletes the
+placeholder — so the later media/transcript stages skip-if-present. This cuts cost and latency
+on re-runs of the same session with different note settings.
+
+### `acquiring_media` (`vtn_ingest`)
+
+**What** — Get exactly one local copy of the video that everything else reads from.
+
+**How** — Download a single **proxy** via yt-dlp (or the source's media URL) at a capped
+resolution (default 720p) to bound storage/egress while keeping screenshots legible, and store
+it at `videos.proxy_blob_path`. The proxy is the **single source of truth**: automated frame
+sampling, review scrubbing, and manual frame capture all read the same pixels, which is what
+keeps transcript timestamps and frame timestamps on one clock. Skip-if-present makes this
+resumable.
+
+### `transcribing` (`vtn_transcript`)
+
+**What** — Produce a normalized, timestamped transcript on the video timeline.
+
+**How** — A priority chain of `TranscriptProvider`s, best-quality first: source captions →
+YouTube captions → Azure AI Speech ASR (from the proxy audio). The first that succeeds wins;
+output is normalized to `transcript_spans` (start/end seconds, text, speaker where available).
+The chosen `source` is recorded and surfaced in review — ASR is slower and lower quality, so
+falling back to it raises a non-blocking `warning` rather than silently downgrading. Runs **in
+parallel** with `indexing_visual` (both depend only on the proxy).
+
+This stage *acquires* the transcript only — it does no chunking or embedding. There is
+deliberately no symmetric "transcript indexing" stage: the windowing + embedding of the
+transcript is cheap and used by a single detector, so it happens inside `segmenting` (the
+`SemanticShiftDetector`), not here.
+
+### `indexing_visual` (`vtn_visual`)
+
+**What** — Extract a timeline of `visual_events` (slide changes, title/OCR changes, demos,
+keyframes, low-speech/high-visual moments) from the video frames.
+
+> **"Indexing" here is signal extraction, not a search index.** Neither this stage nor the
+> transcript stage builds a searchable / vector index, and there is no semantic-search feature in
+> v1. Both emit timestamped rows that feed `segmenting`. (The transcript embeddings used later
+> exist only so the `SemanticShiftDetector` can spot a cosine-similarity drop between adjacent
+> windows — a boundary signal, not a query index.)
+
+**How** — Two-tier ffmpeg sampling for latency: a coarse pass (~1 fps) finds change regions, then
+a fine pass samples densely **only** around those changes. Cheap detectors run over the sampled
+frames, each emitting a `visual_event`:
+
+- **Slide/scene change** — pixel difference / SSIM jump between consecutive frames.
+- **Title/OCR change** — OCR (Azure Vision / Document Intelligence) on candidate frames; the
+  extracted text is stored (`ocr_text`) and reused later as evidence + caption material.
+- **Keyframe candidate** — the settled, representative frame within a shot.
+- **Demo/visual-dense** — sustained high local change rate (typing, scrolling code, animation).
+- **Low-speech/high-visual-change** — visual motion in transcript-sparse windows (silent demo).
+
+A perceptual hash (`phash`) is computed per stored frame so the drafting stage can later drop
+near-duplicate screenshots. There is **no embedding or vector store** here — it is classic CV +
+targeted OCR. Note `vtn_visual` does **double duty**: its events are both boundary hints for
+`segmenting` *and* the candidate pool for screenshots in `drafting`. v1 deliberately does **no
+deep multimodal frame understanding** (no CLIP-style frame embeddings, no vision-LLM slide
+description); upgrading that (Azure AI Video Indexer, Gemini multimodal) is tracked in **Open
+questions**.
+
+**Transcript vs. visual signals**, on the same clock:
+
+| | Transcript (`vtn_transcript` + SemanticShift) | Visual (`vtn_visual`) |
+| --- | --- | --- |
+| Raw material | Caption / ASR text spans | Sampled video frames |
+| Technique | **Embeddings** → cosine drop between windows | **Pixel diff / SSIM + OCR**; no embeddings |
+| Emits | `semantic_shift` / `speaker_change` / `time_gap` | `slide_change` / `title_change` / `demo_change` / `keyframe` / `low_speech_visual` |
+| Second job | — | Also the screenshot candidate pool |
+
+### `extracting_style` (`vtn_style`) — only when examples are provided
+
+**What** — Turn optional user-supplied example notes into a **style profile** that steers both
+segmentation and drafting.
+
+**How** — If the job supplies example markdown (pasted or uploaded `.md`), a one-time LLM
+**extraction** distills each dimension *with a confidence*: a `style_descriptor` (headings,
+prose-vs-bullets, code-block usage, caption style, voice), a `granularity` target (coarse →
+fine), a `density` target (note length + screenshot density), and a `derived_prompt` (the
+implicit instruction the examples imply). A deterministic **resolution** step then merges these
+with the `depth` preset *per dimension*: where the example dimension is confidently inferred it
+wins; otherwise the `depth` preset fills in. The result — the resolved `style_profile` — is
+persisted on the job and emitted as a `style.resolved` event so the UI can show what won (and
+flag an explicit `depth`-vs-example contradiction). Because it depends only on the examples, this
+runs in parallel from job submit and is ready by the time `segmenting` starts; it is skipped
+entirely when no examples (and no saved default) are present. Examples are a **style/format
+reference only — never a source of facts** (a generation guardrail, see drafting). The profile
+can be saved as the user's reusable default.
+
+### `segmenting` (`vtn_segment`)
+
+**What** — Fuse transcript + visual signals into ordered section boundaries with titles, gists,
+and classifications.
+
+**How** — Every signal source implements one `BoundaryDetector` interface emitting
+`BoundaryCandidate`s, so adding a variation is one detector or one config weight — never a
+fusion edit. Deterministic fusion favors **recall** (cluster nearby candidates, score by
+configurable per-signal weights, keep above a threshold, snap boundaries to transcript-span
+starts / slide frames). A single **LLM refinement pass** then adds **precision + labeling**: it
+merges over-segmentation, drops spurious boundaries, and writes each section's title, one-line
+gist, and `text_led | visual_led | mixed` class. The refinement pass is also handed the
+`style_profile`'s **granularity** target, so it collapses the over-segmented candidates to the
+detail level implied by `depth`/examples. The titles + gists become the global outline that
+keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
+budgeting are in the detailed section.)
+
+This stage is also where the transcript is windowed (~20–40s) and embedded — the work a
+"transcript indexing" stage would do — performed inside the `SemanticShiftDetector` rather than
+as a separate stage.
+
+### `drafting` (`vtn_notes`)
+
+**What** — For each section, choose its screenshots and write its markdown note, streaming each
+out as it finishes.
+
+**How** — Screenshot selection scores the section's `visual_events` by type × confidence, dedups
+via `phash` Hamming distance, and caps the count by the profile's **density** (× classification).
+Note generation is **one LLM call per section** (bounded concurrency) fed the section transcript,
+visual/OCR summary, selected screenshots, the resolved **`style_profile`** (style descriptor +
+density + merged derived/custom prompt), and the **continuity context** (global outline + concept
+ledger) so sections stay consistent and non-redundant. Each finished section writes
+`section_notes`, flips to `ready`, and publishes a `section.ready` event over SSE.
+
+### `review_ready`
+
+**What** — All sections drafted; the job is now awaiting human review. No package; it is the
+state the UI switches fully into edit mode on.
+
+### `exported` (`vtn_export`)
+
+**What** — Produce the downloadable artifact.
+
+**How** — Assemble a ZIP from current DB state + Blob assets: `note.md` with relative image
+paths, an `images/` folder, and a `metadata.json` capturing source URL, timestamps, depth, and
+transcript source for audit/re-import.
 
 ---
 
@@ -768,119 +796,6 @@ example notes inline as `{name, markdown}`; the API writes each `markdown` body 
 container and stores the resulting `{name, blob_path}` manifest in the row (the inline `markdown`
 is not persisted in PostgreSQL). The `source` field is what the UI reads to show which dimensions
 came from examples vs `depth`, and to flag a contradiction.
-
----
-
-## API contract
-
-Base path `/api/v1`. JSON unless noted. A single shared username/password gates all routes via
-a signed httpOnly **session cookie** (see Security). Errors use a consistent envelope:
-`{ "error": { "code": "...", "message": "...", "stage": "..." } }`.
-
-### Auth
-
-```http
-POST /api/v1/login   { "username": "...", "password": "..." }
-→ 200  Set-Cookie: vtn_session=<signed>; HttpOnly; Secure; SameSite=Lax
-→ 401  { "error": { "code": "invalid_credentials", ... } }   # rate-limited
-
-POST /api/v1/logout  → 204   # clears the session cookie
-```
-
-All routes below require a valid session cookie; the SSE stream authenticates with the same
-cookie automatically (no Authorization header needed).
-
-### Submit and jobs
-
-```http
-POST /api/v1/jobs
-{
-  "url": "https://www.youtube.com/watch?v=...",
-  "depth": "thorough" | "balanced" | "brief" | "custom",
-  "custom_prompt": "string (required iff depth=custom)",
-  "examples": [ { "name": "my-note.md", "markdown": "..." } ],  // optional few-shot style examples
-  "use_default_style": true,                                    // optional; apply the saved default if no examples
-  "save_style_as_default": false                                // optional; persist this job's examples as default
-}
-→ 202 { "job_id": "uuid", "video_id": "uuid (provisional)", "cost_estimate": { "total_usd": 1.42, "breakdown": {...} } }
-# video_id is the placeholder; resolving/dedup may delete it and re-point job.video_id, so clients
-#   read the current video from GET /jobs/{job_id} (and use that id for /videos/{video_id}/stream)
-# the resolved style_profile is not known yet; it arrives via the `style.resolved` SSE event
-```
-
-```http
-GET /api/v1/jobs/{job_id}
-→ 200 { job, video, prompt, stage, status, sections_summary, media_available, cost }
-#   media_available: derived (proxy blob still present); cost: estimate + actuals from job_costs
-```
-
-```http
-GET /api/v1/jobs/{job_id}/events        # SSE stream
-Content-Type: text/event-stream
-# event types: stage, cost.estimate, style.resolved, section.ready, warning, error, done
-# replays missed events using Last-Event-ID, then live-streams
-```
-
-```http
-POST /api/v1/jobs/{job_id}/cancel  → 200
-```
-
-### Sections, notes, screenshots (review)
-
-```http
-GET    /api/v1/jobs/{job_id}/sections                 → [section + current note + screenshots]
-PATCH  /api/v1/sections/{id}                           # title/markdown_edited any time a section is ready;
-                                                       # boundary (start_sec/end_sec) edits → 409 job_not_review_ready
-                                                       #   while status='active'
-       # uses If-Unmodified-Since / revision guard → 412 on stale write (optimistic concurrency)
-POST   /api/v1/sections/{id}/regenerate                # body: optional instruction override
-                                                       # new revision; prior edited revision kept in history
-GET    /api/v1/sections/{id}/revisions                 → [revision metadata, newest first]
-POST   /api/v1/sections/{id}/revisions/{rev}/restore   # appends a new revision copying {rev}'s content
-POST   /api/v1/sections/{id}/split  { "at_sec": n }    # see Review mutation semantics
-                                                       # 409 job_not_review_ready while status='active'
-POST   /api/v1/sections/merge       { "ids": [a,b] }   # see Review mutation semantics
-                                                       # 409 job_not_review_ready while status='active'
-
-POST   /api/v1/sections/{id}/screenshots/capture { "at_sec": n }
-       # API ffmpeg-extracts frame from stored proxy → new screenshot row
-       # 409 media_unavailable if the proxy has expired (re-acquire first)
-PATCH  /api/v1/screenshots/{id}                        # caption/selected/order_index
-DELETE /api/v1/screenshots/{id}
-```
-
-### Media (review scrubbing + frame capture)
-
-```http
-GET /api/v1/videos/{video_id}/stream     # HTTP Range requests over the stored proxy
-                                         # 409 media_unavailable if the proxy has expired
-GET /api/v1/screenshots/{id}/raw         # PNG bytes (always available; stored asset, not the proxy)
-POST /api/v1/jobs/{job_id}/reacquire-media  # re-download the proxy from canonical_url after expiry
-                                         # → 202; enqueues an acquiring_media-only worker run via the
-                                         #   same queue; flips media_available to true when complete
-```
-
-### Export
-
-```http
-POST /api/v1/jobs/{job_id}/export   → 200 { "export_id": "...", "download_url": "..." }
-GET  /api/v1/exports/{id}/download  → application/zip
-```
-
-### Style default (saved few-shot examples)
-
-```http
-GET    /api/v1/style-default   → 200 { "examples": [...manifest], "extracted": {...} } | 204 if none
-PUT    /api/v1/style-default   { "examples": [ { "name": "...", "markdown": "..." } ] }
-       # extracts + stores the default (also done implicitly by save_style_as_default on submit)
-DELETE /api/v1/style-default   → 204
-```
-
-Regenerate/split/merge during review are **synchronous API operations** that call the same
-shared packages the worker uses (e.g. `vtn_notes.generate_section`); they do not go through
-Service Bus, keeping review interactions snappy. On regenerate, the continuity context (global
-outline + concept ledger) is rebuilt from the job's sibling sections' current titles/notes, so
-a single regenerated section stays consistent with the rest.
 
 ---
 
@@ -1106,6 +1021,119 @@ Sections are *started* in `order_index` order with bounded concurrency, so they 
 out of order; each is emitted the moment it finishes (not in a final batch). The UI renders
 sections sorted by `order_index`, so an earlier slot may fill in after a later one. When the
 last section is ready, the job moves to `review_ready` and a `done` event is sent.
+
+---
+
+## API contract
+
+Base path `/api/v1`. JSON unless noted. A single shared username/password gates all routes via
+a signed httpOnly **session cookie** (see Security). Errors use a consistent envelope:
+`{ "error": { "code": "...", "message": "...", "stage": "..." } }`.
+
+### Auth
+
+```http
+POST /api/v1/login   { "username": "...", "password": "..." }
+→ 200  Set-Cookie: vtn_session=<signed>; HttpOnly; Secure; SameSite=Lax
+→ 401  { "error": { "code": "invalid_credentials", ... } }   # rate-limited
+
+POST /api/v1/logout  → 204   # clears the session cookie
+```
+
+All routes below require a valid session cookie; the SSE stream authenticates with the same
+cookie automatically (no Authorization header needed).
+
+### Submit and jobs
+
+```http
+POST /api/v1/jobs
+{
+  "url": "https://www.youtube.com/watch?v=...",
+  "depth": "thorough" | "balanced" | "brief" | "custom",
+  "custom_prompt": "string (required iff depth=custom)",
+  "examples": [ { "name": "my-note.md", "markdown": "..." } ],  // optional few-shot style examples
+  "use_default_style": true,                                    // optional; apply the saved default if no examples
+  "save_style_as_default": false                                // optional; persist this job's examples as default
+}
+→ 202 { "job_id": "uuid", "video_id": "uuid (provisional)", "cost_estimate": { "total_usd": 1.42, "breakdown": {...} } }
+# video_id is the placeholder; resolving/dedup may delete it and re-point job.video_id, so clients
+#   read the current video from GET /jobs/{job_id} (and use that id for /videos/{video_id}/stream)
+# the resolved style_profile is not known yet; it arrives via the `style.resolved` SSE event
+```
+
+```http
+GET /api/v1/jobs/{job_id}
+→ 200 { job, video, prompt, stage, status, sections_summary, media_available, cost }
+#   media_available: derived (proxy blob still present); cost: estimate + actuals from job_costs
+```
+
+```http
+GET /api/v1/jobs/{job_id}/events        # SSE stream
+Content-Type: text/event-stream
+# event types: stage, cost.estimate, style.resolved, section.ready, warning, error, done
+# replays missed events using Last-Event-ID, then live-streams
+```
+
+```http
+POST /api/v1/jobs/{job_id}/cancel  → 200
+```
+
+### Sections, notes, screenshots (review)
+
+```http
+GET    /api/v1/jobs/{job_id}/sections                 → [section + current note + screenshots]
+PATCH  /api/v1/sections/{id}                           # title/markdown_edited any time a section is ready;
+                                                       # boundary (start_sec/end_sec) edits → 409 job_not_review_ready
+                                                       #   while status='active'
+       # uses If-Unmodified-Since / revision guard → 412 on stale write (optimistic concurrency)
+POST   /api/v1/sections/{id}/regenerate                # body: optional instruction override
+                                                       # new revision; prior edited revision kept in history
+GET    /api/v1/sections/{id}/revisions                 → [revision metadata, newest first]
+POST   /api/v1/sections/{id}/revisions/{rev}/restore   # appends a new revision copying {rev}'s content
+POST   /api/v1/sections/{id}/split  { "at_sec": n }    # see Review mutation semantics
+                                                       # 409 job_not_review_ready while status='active'
+POST   /api/v1/sections/merge       { "ids": [a,b] }   # see Review mutation semantics
+                                                       # 409 job_not_review_ready while status='active'
+
+POST   /api/v1/sections/{id}/screenshots/capture { "at_sec": n }
+       # API ffmpeg-extracts frame from stored proxy → new screenshot row
+       # 409 media_unavailable if the proxy has expired (re-acquire first)
+PATCH  /api/v1/screenshots/{id}                        # caption/selected/order_index
+DELETE /api/v1/screenshots/{id}
+```
+
+### Media (review scrubbing + frame capture)
+
+```http
+GET /api/v1/videos/{video_id}/stream     # HTTP Range requests over the stored proxy
+                                         # 409 media_unavailable if the proxy has expired
+GET /api/v1/screenshots/{id}/raw         # PNG bytes (always available; stored asset, not the proxy)
+POST /api/v1/jobs/{job_id}/reacquire-media  # re-download the proxy from canonical_url after expiry
+                                         # → 202; enqueues an acquiring_media-only worker run via the
+                                         #   same queue; flips media_available to true when complete
+```
+
+### Export
+
+```http
+POST /api/v1/jobs/{job_id}/export   → 200 { "export_id": "...", "download_url": "..." }
+GET  /api/v1/exports/{id}/download  → application/zip
+```
+
+### Style default (saved few-shot examples)
+
+```http
+GET    /api/v1/style-default   → 200 { "examples": [...manifest], "extracted": {...} } | 204 if none
+PUT    /api/v1/style-default   { "examples": [ { "name": "...", "markdown": "..." } ] }
+       # extracts + stores the default (also done implicitly by save_style_as_default on submit)
+DELETE /api/v1/style-default   → 204
+```
+
+Regenerate/split/merge during review are **synchronous API operations** that call the same
+shared packages the worker uses (e.g. `vtn_notes.generate_section`); they do not go through
+Service Bus, keeping review interactions snappy. On regenerate, the continuity context (global
+outline + concept ledger) is rebuilt from the job's sibling sections' current titles/notes, so
+a single regenerated section stays consistent with the rest.
 
 ---
 
