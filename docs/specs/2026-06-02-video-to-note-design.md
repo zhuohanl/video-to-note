@@ -505,11 +505,8 @@ Terminal/side states:
 runs, recorded in `jobs.stage`. This is the canonical meaning throughout the spec. The
 finer-grained numbered items in **Pipeline (detailed algorithms)** are **steps**, not stages.
 
-A stage **contains** one or more steps (mapping in *Pipeline (detailed algorithms)*):
-single-step stages like `resolving` look 1:1, while `segmenting` (steps 5–6) and `drafting`
-(steps 7–9) bundle several. Only **stage transitions** update `jobs.stage` and emit a `stage`
-event; finishing an individual step does not — the steps inside a stage complete silently. (The
-one exception is `drafting`, which additionally emits a `section.ready` per section as it runs.)
+A stage **contains** one or more steps, and only stage transitions update `jobs.stage` — see
+**Stages and steps** below for the full mapping and the update rules.
 
 The diagram blends two columns for readability. `jobs.stage` tracks **pipeline progress**
 (`queued` → `resolving` → `acquiring_media` → `analyzing` → `segmenting` → `drafting`);
@@ -534,6 +531,42 @@ column. Per-branch progress (which of the three have started/finished) is recons
 append-only `job_events` log, which is **authoritative for fine-grained progress** and is replayed
 on reconnect via `Last-Event-ID`; `jobs.stage` is only a coarse summary pointer. Resume stays
 correct regardless of the scalar's value because each branch's runner is skip-if-present.
+
+### Stages and steps
+
+A **stage** is the coarse progress unit (a Job-state-machine node, tracked in `jobs.stage`,
+emitted as a `stage` SSE event). A **step** is an algorithm sub-unit *inside* a stage — the
+numbered items in **Pipeline (detailed algorithms)**. Some stages are a single step; some bundle
+several:
+
+| Stage | `jobs.stage` while it runs | Step(s) |
+| --- | --- | --- |
+| `resolving` | `resolving` | step 1 |
+| `acquiring_media` | `acquiring_media` | step 2 |
+| `transcribing` | `analyzing` † | step 3 |
+| `indexing_visual` | `analyzing` † | step 4 |
+| `extracting_style` | `analyzing` † | step 4b |
+| `segmenting` | `segmenting` | steps 5 + 6 (boundary signals → fusion/refinement) |
+| `drafting` | `drafting` | steps 7 + 8 + 9 (screenshot select → note gen → progressive emission) |
+
+† The three concurrent stages share the `analyzing` `jobs.stage` value — a scalar column can't
+name a fork (see the Job state machine) — but each still emits its own `stage` SSE event.
+
+So `resolving` is one step, but `segmenting` is two steps and `drafting` is three.
+
+**What updates `jobs.stage`.** It flips when the worker **enters a new stage** — at that moment
+the orchestrator writes a `stage` row to `job_events`, which surfaces as the SSE `stage` event.
+Steps do **not** each update `jobs.stage`:
+
+- **Single-step stages** (`resolving`, `acquiring_media`, and each of `transcribing` /
+  `indexing_visual` / `extracting_style`) — finishing the step *is* finishing the stage, so it
+  looks 1:1.
+- **Multi-step stages** (`segmenting`, `drafting`) — the intermediate steps complete **silently**:
+  step 5 finishing doesn't change `jobs.stage`; only the transition *into* `segmenting`, then
+  *into* `drafting`, is recorded.
+
+(`drafting` additionally emits a `section.ready` per section as steps 8–9 run — but that is a
+`section.ready` event, not a `stage` change.)
 
 ### Idempotency and resumability
 
