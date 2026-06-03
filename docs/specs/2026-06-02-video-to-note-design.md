@@ -228,9 +228,9 @@ sequenceDiagram
     end
 
     rect rgb(234, 255, 240)
-    Note over U,DB: REVIEW PHASE — synchronous REST; worker NOT involved
+    Note over U,DB: REVIEW PHASE — synchronous REST, worker NOT involved
 
-    Note over U,DB: review_ready (no worker; user edits)
+    Note over U,DB: review_ready (no worker, user edits)
     U->>API: PATCH /sections/{id} (edit note/title)
     U->>API: POST /sections/{id}/regenerate
     API->>DB: vtn_notes → new section_notes revision
