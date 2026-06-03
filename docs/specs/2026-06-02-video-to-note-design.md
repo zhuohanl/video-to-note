@@ -254,7 +254,7 @@ questions**.
 | Emits | `semantic_shift` / `speaker_change` / `time_gap` | `slide_change` / `title_change` / `demo_change` / `keyframe` / `low_speech_visual` |
 | Second job | — | Also the screenshot candidate pool |
 
-### `extracting_style` (`vtn_notes`) — only when examples are provided
+### `extracting_style` (`vtn_style`) — only when examples are provided
 
 **What** — Turn optional user-supplied example notes into a **style profile** that steers both
 segmentation and drafting.
@@ -349,8 +349,9 @@ video-to-note/
 │  ├─ vtn_ingest/               # url resolvers, media acquisition
 │  ├─ vtn_transcript/           # transcript providers (captions, speech)
 │  ├─ vtn_visual/               # frame sampling, change/OCR/keyframe detectors
+│  ├─ vtn_style/                # style_profile type, example extraction, depth-merge resolution
 │  ├─ vtn_segment/              # signal interface, fusion, LLM refinement
-│  ├─ vtn_notes/                # note generation, prompt templates, screenshot selection, style extraction
+│  ├─ vtn_notes/                # note generation, prompt templates, screenshot selection
 │  ├─ vtn_export/               # markdown + ZIP assembly
 │  ├─ vtn_storage/              # blob + postgres repositories, QueueProvider (Service Bus | local)
 │  └─ vtn_ai/                   # provider adapters (Foundry, Speech, Vision, embeddings) + `fake` profile
@@ -363,7 +364,10 @@ video-to-note/
 ```
 
 Module boundaries map 1:1 to pipeline stages so each stage is independently testable. The
-worker orchestrates packages; packages never import the worker.
+worker orchestrates packages; packages never import the worker. `vtn_style` is a shared
+lower-level package: it owns the `style_profile` type and its extraction/resolution, and both
+`vtn_segment` (granularity) and `vtn_notes` (style/density/derived prompt) depend on it — never
+the reverse, so the earlier `segmenting` stage never imports the later note-generation package.
 
 ---
 
@@ -759,7 +763,7 @@ embeddings, no vector store — classic CV + OCR over sampled frames.
   - **Low-speech/high-visual-change**: visual change in transcript-sparse windows.
 - Compute a perceptual hash (`phash`) per stored frame for later dedup.
 
-### 4b. Style extraction (`vtn_notes`) — optional, runs only when examples are provided
+### 4b. Style extraction (`vtn_style`) — optional, runs only when examples are provided
 
 Maps to the `extracting_style` stage. Depends only on the submitted example notes (or the saved
 default), so it runs in parallel from job submit and joins at `segmenting`. Two sub-steps:
