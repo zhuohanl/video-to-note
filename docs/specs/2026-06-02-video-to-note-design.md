@@ -173,6 +173,11 @@ Diagram 2 the worker *writes rows*; in Diagram 1 those writes surface to the bro
 events. Progress flows **up** from the worker via SSE; review flows **across** via synchronous
 REST that never touches the worker.
 
+The user-facing flow is **login → submit → progress → review → export**. Only the last three are
+job states: **login** is session-level (an auth cookie, no job and no job state) and **submit**
+creates the job at the existing `queued` stage — so the flow needs **no states beyond the Job
+state machine** (progress = `status=active`, review = `review_ready`, export = `exported`).
+
 **Diagram 1 — frontend ↔ backend sequence (all stages):**
 
 ```mermaid
@@ -184,8 +189,13 @@ sequenceDiagram
     participant W as Worker
     participant DB as Postgres + Blob
 
+    Note over U,API: SESSION (once per browser, no job yet)
+    U->>API: POST /login (username, password)
+    API-->>U: Set-Cookie vtn_session (httpOnly) — all calls below carry it
+
+    Note over U,DB: SUBMIT — creates the job at stage=queued
     U->>API: POST /jobs (url, depth, examples?)
-    API->>DB: create job + placeholder video
+    API->>DB: create job (stage=queued) + placeholder video
     API->>Bus: enqueue job
     API-->>U: 202 (job_id, cost_estimate)
     U->>API: open SSE GET /jobs/{id}/events
