@@ -194,6 +194,11 @@ The chosen `source` is recorded and surfaced in review — ASR is slower and low
 falling back to it raises a non-blocking `warning` rather than silently downgrading. Runs **in
 parallel** with `indexing_visual` (both depend only on the proxy).
 
+This stage *acquires* the transcript only — it does no chunking or embedding. There is
+deliberately no symmetric "transcript indexing" stage: the windowing + embedding of the
+transcript is cheap and used by a single detector, so it happens inside `segmenting` (the
+`SemanticShiftDetector`), not here.
+
 ### `indexing_visual` (`vtn_visual`)
 
 **What** — Extract a timeline of `visual_events` (slide changes, title/OCR changes, demos,
@@ -240,7 +245,9 @@ and classifications.
 
 **How** — Every signal source implements one `BoundaryDetector` interface emitting
 `BoundaryCandidate`s, so adding a variation is one detector or one config weight — never a fusion
-edit. Deterministic fusion favors **recall** (cluster nearby candidates, score by configurable
+edit. This is also where the transcript is windowed (~20–40s) and embedded — the work a
+"transcript indexing" stage would do — performed inside the `SemanticShiftDetector` rather than
+as a separate stage. Deterministic fusion favors **recall** (cluster nearby candidates, score by configurable
 per-signal weights, keep above a threshold, snap boundaries to transcript-span starts / slide
 frames). A single **LLM refinement pass** then adds **precision + labeling**: it merges
 over-segmentation, drops spurious boundaries, and writes each section's title, one-line gist,
