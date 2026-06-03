@@ -3,7 +3,8 @@
 > Status: detailed / implementation-ready draft. Supersedes the high-level design of the
 > same date. Forks decided during brainstorming are recorded in **Decided defaults**.
 > Deepened (2026-06-02) with: fusion/alignment algorithm, cost model, latency budgets,
-> review mutation semantics, and auth/SSE/local-dev/migrations.
+> review mutation semantics, auth/SSE/local-dev/migrations, and few-shot output examples
+> (the `extracting_style` stage + unified detail profile).
 
 ## Overview
 
@@ -74,6 +75,8 @@ These forks were resolved during brainstorming and are binding for v1:
 | Migrations | **Alembic**, versioned in repo; `alembic upgrade head` as a CD step. |
 | Local dev | `docker-compose` (Postgres + Azurite) + a `fake` AI provider profile for offline, zero-spend runs. |
 | Re-submit dedup | Reuse a video's proxy + transcript artifacts across jobs when `canonical_url` already processed; always create a new job. |
+| Output examples (few-shot) | Optional per-job example notes (paste/upload `.md`), distilled once into a **style profile**; can be saved as the user's default for future jobs. |
+| Detail profile | `depth` and examples both feed one profile of {segmentation granularity, note density, style, derived prompt}. Examples win **per-dimension by extraction confidence**; `depth` is the fallback. |
 
 ---
 
@@ -245,6 +248,25 @@ questions**.
 | Emits | `semantic_shift` / `speaker_change` / `time_gap` | `slide_change` / `title_change` / `demo_change` / `keyframe` / `low_speech_visual` |
 | Second job | — | Also the screenshot candidate pool |
 
+### `extracting_style` (`vtn_notes`) — only when examples are provided
+
+**What** — Turn optional user-supplied example notes into a **style profile** that steers both
+segmentation and drafting.
+
+**How** — If the job supplies example markdown (pasted or uploaded `.md`), a one-time LLM
+**extraction** distills each dimension *with a confidence*: a `style_descriptor` (headings,
+prose-vs-bullets, code-block usage, caption style, voice), a `granularity` target (coarse →
+fine), a `density` target (note length + screenshot density), and a `derived_prompt` (the
+implicit instruction the examples imply). A deterministic **resolution** step then merges these
+with the `depth` preset *per dimension*: where the example dimension is confidently inferred it
+wins; otherwise the `depth` preset fills in. The result — the resolved `style_profile` — is
+persisted on the job and emitted as a `style.resolved` event so the UI can show what won (and
+flag an explicit `depth`-vs-example contradiction). Because it depends only on the examples, this
+runs in parallel from job submit and is ready by the time `segmenting` starts; it is skipped
+entirely when no examples (and no saved default) are present. Examples are a **style/format
+reference only — never a source of facts** (a generation guardrail, see drafting). The profile
+can be saved as the user's reusable default.
+
 ### `segmenting` (`vtn_segment`)
 
 **What** — Fuse transcript + visual signals into ordered section boundaries with titles, gists,
@@ -256,8 +278,10 @@ fusion edit. Deterministic fusion favors **recall** (cluster nearby candidates, 
 configurable per-signal weights, keep above a threshold, snap boundaries to transcript-span
 starts / slide frames). A single **LLM refinement pass** then adds **precision + labeling**: it
 merges over-segmentation, drops spurious boundaries, and writes each section's title, one-line
-gist, and `text_led | visual_led | mixed` class. The titles + gists become the global outline
-that keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
+gist, and `text_led | visual_led | mixed` class. The refinement pass is also handed the
+`style_profile`'s **granularity** target, so it collapses the over-segmented candidates to the
+detail level implied by `depth`/examples. The titles + gists become the global outline that
+keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
 budgeting are in the detailed section.)
 
 This stage is also where the transcript is windowed (~20–40s) and embedded — the work a
@@ -270,11 +294,12 @@ as a separate stage.
 out as it finishes.
 
 **How** — Screenshot selection scores the section's `visual_events` by type × confidence, dedups
-via `phash` Hamming distance, and caps the count by depth and classification. Note generation is
-**one LLM call per section** (bounded concurrency) fed the section transcript, visual/OCR
-summary, selected screenshots, the depth/custom prompt, and the **continuity context** (global
-outline + concept ledger) so sections stay consistent and non-redundant. Each finished section
-writes `section_notes`, flips to `ready`, and publishes a `section.ready` event over SSE.
+via `phash` Hamming distance, and caps the count by the profile's **density** (× classification).
+Note generation is **one LLM call per section** (bounded concurrency) fed the section transcript,
+visual/OCR summary, selected screenshots, the resolved **`style_profile`** (style descriptor +
+density + merged derived/custom prompt), and the **continuity context** (global outline + concept
+ledger) so sections stay consistent and non-redundant. Each finished section writes
+`section_notes`, flips to `ready`, and publishes a `section.ready` event over SSE.
 
 ### `review_ready`
 
@@ -319,7 +344,7 @@ video-to-note/
 │  ├─ vtn_transcript/           # transcript providers (captions, speech)
 │  ├─ vtn_visual/               # frame sampling, change/OCR/keyframe detectors
 │  ├─ vtn_segment/              # signal interface, fusion, LLM refinement
-│  ├─ vtn_notes/                # note generation, prompt templates, screenshot selection
+│  ├─ vtn_notes/                # note generation, prompt templates, screenshot selection, style extraction
 │  ├─ vtn_export/               # markdown + ZIP assembly
 │  ├─ vtn_storage/              # blob + postgres repositories, QueueProvider (Service Bus | local)
 │  └─ vtn_ai/                   # provider adapters (Foundry, Speech, Vision, embeddings) + `fake` profile
@@ -347,8 +372,9 @@ queued
   → resolving        (resolve + validate URL, fetch metadata)
   → acquiring_media  (download proxy video)
   → transcribing     (captions or speech)            ─┐ run concurrently
-  → indexing_visual  (frame sampling, change/OCR/kf)  ─┘
-  → segmenting       (signal detection → fusion → LLM refinement)
+  → indexing_visual  (frame sampling, change/OCR/kf)   │
+  → extracting_style (distill example notes → profile) ─┘ (only if examples given)
+  → segmenting       (signal detection → fusion → LLM refinement; uses style profile)
   → drafting         (per-section notes + screenshot selection, emitted progressively)
   → review_ready     (all sections drafted; awaiting human review)
   → exported         (ZIP produced)
@@ -365,8 +391,11 @@ runs, `status='active'` and `stage` advances; on completion `stage` stays at its
 `status` moves to `review_ready`, then `exported` after export.
 
 `transcribing` and `indexing_visual` both depend only on `acquiring_media` and run in
-parallel. `segmenting` joins them. Each transition is persisted; a failure records the stage so
-a retry resumes from the last completed artifact rather than re-downloading or re-transcribing.
+parallel. `extracting_style` (present only when the job supplies example notes) depends only on
+those examples, so it can start immediately at job submit and run alongside the media/transcript/
+visual work. `segmenting` joins all of them. Each transition is persisted; a failure records the
+stage so a retry resumes from the last completed artifact rather than re-downloading or
+re-transcribing.
 
 ### Idempotency and resumability
 
@@ -415,7 +444,18 @@ CREATE TABLE prompts (
   job_id        uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
   depth         text NOT NULL,           -- 'thorough' | 'balanced' | 'brief' | 'custom'
   custom_prompt text,                    -- non-null only when depth='custom'
+  examples      jsonb NOT NULL DEFAULT '[]',  -- manifest: [{name, blob_path}] of supplied example notes
+  style_profile jsonb NOT NULL DEFAULT '{}',  -- resolved profile (shape below); '{}' until extracting_style runs
+  save_style_as_default boolean NOT NULL DEFAULT false,
   model_config  jsonb NOT NULL DEFAULT '{}'  -- externalized model ids/params
+);
+
+-- Singleton holding the user's saved default style (since v1 is single-user / single-tenant).
+CREATE TABLE style_defaults (
+  id            boolean PRIMARY KEY DEFAULT true CHECK (id),  -- enforces a single row
+  examples      jsonb NOT NULL DEFAULT '[]',  -- manifest of the saved example notes (raw text in Blob)
+  extracted     jsonb NOT NULL DEFAULT '{}',  -- example-derived dimensions + confidences (pre-resolution)
+  updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
 -- Normalized transcript spans on the video timeline.
@@ -488,7 +528,7 @@ CREATE INDEX idx_shots_section ON screenshots(section_id, order_index);
 CREATE TABLE job_events (
   id         bigserial PRIMARY KEY,
   job_id     uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-  type       text NOT NULL,            -- 'stage' | 'cost.estimate' | 'section.ready' | 'warning' | 'error' | 'done'
+  type       text NOT NULL,            -- 'stage' | 'cost.estimate' | 'style.resolved' | 'section.ready' | 'warning' | 'error' | 'done'
   payload    jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -515,6 +555,22 @@ CREATE TABLE job_costs (
 
 Regenerating one section inserts a new `section_notes` revision and never touches sibling
 sections, satisfying "regenerate one section without invalidating the whole job."
+
+`prompts.style_profile` is the resolved detail profile (see `extracting_style`):
+
+```json
+{
+  "style_descriptor": "distilled style guide (headings, prose-vs-bullets, code, captions, voice)",
+  "granularity":    { "value": "coarse|medium|fine",  "confidence": 0.0, "source": "examples|depth" },
+  "density":        { "value": "low|medium|high",      "confidence": 0.0, "source": "examples|depth" },
+  "derived_prompt": "instruction inferred from examples, merged with custom_prompt",
+  "extracted_from": [ { "name": "example1.md", "blob_path": "examples/<job>/example1.md" } ]
+}
+```
+
+Raw example markdown lives in the `examples` Blob container; `prompts.examples` /
+`style_defaults.examples` hold only the manifest. The `source` field is what the UI reads to show
+which dimensions came from examples vs `depth`, and to flag a contradiction.
 
 ---
 
@@ -544,9 +600,13 @@ POST /api/v1/jobs
 {
   "url": "https://www.youtube.com/watch?v=...",
   "depth": "thorough" | "balanced" | "brief" | "custom",
-  "custom_prompt": "string (required iff depth=custom)"
+  "custom_prompt": "string (required iff depth=custom)",
+  "examples": [ { "name": "my-note.md", "markdown": "..." } ],  // optional few-shot style examples
+  "use_default_style": true,                                    // optional; apply the saved default if no examples
+  "save_style_as_default": false                                // optional; persist this job's examples as default
 }
 → 202 { "job_id": "uuid", "video_id": "uuid", "cost_estimate": { "total_usd": 1.42, "breakdown": {...} } }
+# the resolved style_profile is not known yet; it arrives via the `style.resolved` SSE event
 ```
 
 ```http
@@ -557,7 +617,7 @@ GET /api/v1/jobs/{job_id}
 ```http
 GET /api/v1/jobs/{job_id}/events        # SSE stream
 Content-Type: text/event-stream
-# event types: stage, cost.estimate, section.ready, warning, error, done
+# event types: stage, cost.estimate, style.resolved, section.ready, warning, error, done
 # replays missed events using Last-Event-ID, then live-streams
 ```
 
@@ -598,6 +658,15 @@ POST /api/v1/jobs/{job_id}/export   → 200 { "export_id": "...", "download_url"
 GET  /api/v1/exports/{id}/download  → application/zip
 ```
 
+### Style default (saved few-shot examples)
+
+```http
+GET    /api/v1/style-default   → 200 { "examples": [...manifest], "extracted": {...} } | 204 if none
+PUT    /api/v1/style-default   { "examples": [ { "name": "...", "markdown": "..." } ] }
+       # extracts + stores the default (also done implicitly by save_style_as_default on submit)
+DELETE /api/v1/style-default   → 204
+```
+
 Regenerate/split/merge during review are **synchronous API operations** that call the same
 shared packages the worker uses (e.g. `vtn_notes.generate_section`); they do not go through
 Service Bus, keeping review interactions snappy. On regenerate, the continuity context (global
@@ -609,9 +678,9 @@ a single regenerated section stays consistent with the rest.
 ## Pipeline (detailed algorithms)
 
 All stages live in `worker/stages` and call shared packages. The numbered steps below are finer-
-grained than the named state-machine stages: steps 5–6 together are the `segmenting` stage, and
-steps 7–9 together are the `drafting` stage. Internal "(stage N)" references point to this
-numbering.
+grained than the named state-machine stages: step 4b is the optional `extracting_style` stage,
+steps 5–6 together are the `segmenting` stage, and steps 7–9 together are the `drafting` stage.
+Internal "(stage N)" references point to this numbering.
 
 ### 1. URL resolution & ingestion (`vtn_ingest`)
 
@@ -662,6 +731,41 @@ embeddings, no vector store — classic CV + OCR over sampled frames.
   - **Demo/visual-dense**: high local change rate (UI/code/animation).
   - **Low-speech/high-visual-change**: visual change in transcript-sparse windows.
 - Compute a perceptual hash (`phash`) per stored frame for later dedup.
+
+### 4b. Style extraction (`vtn_notes`) — optional, runs only when examples are provided
+
+Maps to the `extracting_style` stage. Depends only on the submitted example notes (or the saved
+default), so it runs in parallel from job submit and joins at `segmenting`. Two sub-steps:
+
+1. **Extraction (LLM, cached).** Read the example markdown and emit, per dimension *with a
+   confidence in 0..1*:
+   - `style_descriptor` — headings, prose-vs-bullets, code-block usage, screenshot-caption style,
+     voice/tone.
+   - `granularity` — `coarse | medium | fine` (how finely the examples carve a talk into sections).
+   - `density` — `low | medium | high` (note length + screenshot density per section).
+   - `derived_prompt` — the instruction the examples imply.
+   This call runs only on *new* examples; results are cached on the job and, if
+   `save_style_as_default`, upserted into `style_defaults.extracted`. Reusing a saved default
+   skips this LLM call.
+2. **Resolution (deterministic, every job).** Merge the extracted (or default) dimensions with the
+   `depth` preset **per dimension**: a confidently-inferred example dimension wins
+   (`source='examples'`); otherwise the `depth` preset fills in (`source='depth'`). `depth` maps
+   to default `granularity`/`density` (Brief → coarse/low … Thorough → fine/high). `style_descriptor`
+   and `derived_prompt` have no `depth` equivalent, so they come from examples when present.
+   Persist the merged result to `prompts.style_profile`.
+
+Resolution runs for **every** job, so `style_profile` is always populated before `segmenting`
+reads it — downstream stages keep one code path. The `extracting_style` stage (and its LLM cost)
+exists only when new examples are supplied; with no examples and no saved default there is no
+extraction, and resolution yields a **depth-only** profile (`source='depth'` on every dimension,
+empty `style_descriptor`/`derived_prompt`) as `segmenting` begins.
+
+**Guardrails.** A thin example (e.g. one short section) yields low-confidence `granularity`, which
+then falls back to `depth` — preventing a bad guess. After resolution the worker emits a
+`style.resolved` event carrying the profile (each dimension's `value` + `source`); the UI shows a
+one-line summary and, when an explicitly chosen `depth` loses to a confident example, a
+non-blocking "following your examples — use {depth} instead?" note. Extraction is schema-validated;
+on failure it falls back to pure `depth` presets with a quality `warning` (never a hard failure).
 
 ### 5. Boundary signals — uniform interface (`vtn_segment`)
 
@@ -723,6 +827,10 @@ Deterministic fusion for **recall**, LLM for **precision/labeling**:
    keyed by input index so results map back to timestamps. The titles + gists form the **global
    outline** that drives cross-section continuity at note-generation time (stage 8). This
    absorbs per-speech variation rules cannot.
+   - **Granularity target**: the pass is also given `style_profile.granularity` and collapses the
+     recall-favoring candidates to that level (coarse → merge aggressively into themes; fine →
+     keep sub-topics). Fusion still over-segments; granularity is applied here, not by retuning
+     `min_score`/weights.
    - **Robustness**: low temperature; schema-validated output; on invalid JSON, one retry, then
      fall back to the unrefined deterministic boundaries with a quality `warning` — never a hard
      failure.
@@ -737,8 +845,9 @@ Per section:
 1. Gather `visual_events` within `[start_sec, end_sec]`.
 2. Score by `event_type` weight × `confidence`, boosting slide/title/demo frames.
 3. Deduplicate via `phash` Hamming distance (drop near-identical frames).
-4. Select top-N by depth: Thorough ≈ up to 1 per ~30–45s of visual content, Balanced fewer,
-   Brief minimal. `visual_led` sections get a higher cap than `text_led`.
+4. Select top-N by `style_profile.density`: high ≈ up to 1 per ~30–45s of visual content, medium
+   fewer, low minimal. `visual_led` sections get a higher cap than `text_led`. (When no examples,
+   density comes from `depth`: Thorough→high … Brief→low.)
 5. Store selected frames as `screenshots(source='auto')`.
 
 ### 8. Note generation (`vtn_notes`) — one call per section
@@ -747,8 +856,9 @@ Per section:
   source; cached and reused per section.
 - For each section, in `order_index` order with bounded concurrency, call the section
   generator with: section transcript, small neighbor context, visual/OCR summary, selected
-  screenshot captions/timestamps, the **continuity context** (below), and the depth template or
-  custom prompt.
+  screenshot captions/timestamps, the **continuity context** (below), and the resolved
+  `style_profile` — its `style_descriptor` and `density` shape format/length, and its
+  `derived_prompt` is merged with the depth template / `custom_prompt`.
 - **Cross-section continuity** (avoid repeating content across sections):
   - *Primary, deterministic, parallel-safe* — a **global section outline** is available before
     any note generation begins (titles + classification + a one-line gist per section, produced
@@ -766,8 +876,9 @@ Per section:
     redundant**.
 - Prompt templates (in `vtn_notes/prompts/`), one per depth, all sharing guardrails:
   preserve technical detail, clear headings, reference screenshots by relative path, **do not
-  invent claims unsupported by transcript/visual evidence**, keep each section self-contained
-  but not redundant (see continuity, above).
+  invent claims unsupported by transcript/visual evidence**, **use the example notes for
+  style/format only — never as a source of facts**, keep each section self-contained but not
+  redundant (see continuity, above).
 - Write `section_notes(revision=1, markdown_draft=...)`, set `sections.status='ready'`, and
   publish a `section.ready` event → streamed to the UI.
 
@@ -794,6 +905,10 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
 - Prominent URL input with explicit placeholder.
 - Note-depth cards: **Thorough / Balanced / Brief / I will prompt it**, each with a `?` help
   expander. Custom prompt textarea shown **only** for "I will prompt it", with example text.
+- **Example notes (optional)**: a collapsible "Match my style" panel to paste or upload one or
+  more `.md` files as few-shot examples, plus a **"Save as my default style"** toggle. If a saved
+  default exists, it is offered pre-checked ("Use my saved style"). Helper text explains examples
+  steer style + detail and that `depth` fills in anything the examples don't pin down.
 - Submit → `POST /jobs` → navigate to `/jobs/[jobId]`.
 
 ### Progress → review (streaming)
@@ -806,6 +921,10 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
   non-blocking banners. `error` shows an actionable failure with retry.
 - The `cost.estimate` event renders an "Est. ~$X" banner (recolored if a soft ceiling is set);
   it is informational only and never blocks the job.
+- The `style.resolved` event (only when examples/default are used) renders a one-line summary of
+  the resolved profile (e.g. "Following your examples: fine-grained sections, detailed notes").
+  If a confident example dimension overrode an explicitly chosen `depth`, it shows a non-blocking
+  "using your examples — switch back to {depth}?" note.
 
 ### Review editor — components
 
@@ -829,7 +948,9 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
 
 ## Latency strategy
 
-- **Parallelize** `transcribing` and `indexing_visual` (both depend only on media).
+- **Parallelize** `transcribing` and `indexing_visual` (both depend only on media); when examples
+  are supplied, `extracting_style` also runs concurrently from job submit (it depends only on the
+  examples), so it never sits on the critical path.
 - **Two-tier frame sampling** so visual indexing scans coarsely first, refining only around
   changes.
 - **Bounded-concurrency per-section generation** so multiple sections draft at once; each is
@@ -875,6 +996,8 @@ shows it, always proceeds, and records actuals.
     (the dominant *variable*).
   - **Frame OCR** — ∝ candidate frames *after* change-filtering, not all sampled frames.
   - **Embeddings** — semantic-shift windows; cents.
+  - **Style extraction** — one call, only when *new* examples are supplied (skipped when reusing
+    the saved default or when no examples); cheap.
   - **LLM refinement** — one call.
   - **Per-section note generation** — the dominant LLM cost; scales with depth × section count.
   - **Storage / egress** — pennies, but accrues (see **Data retention**).
@@ -949,7 +1072,7 @@ flags it for review.**
     concurrency).
   - `worker.bicep` — ACA **Job**, event-triggered by Service Bus queue depth (KEDA scaler).
   - `servicebus.bicep` — namespace, `jobs` queue, dead-letter config.
-  - `storage.bicep` — Blob containers: `proxies`, `frames`, `screenshots`, `exports`.
+  - `storage.bicep` — Blob containers: `proxies`, `frames`, `screenshots`, `exports`, `examples`.
   - `postgres.bicep` — PostgreSQL Flexible Server + database + firewall/VNet rules.
   - `keyvault.bicep` — secrets + access policies / RBAC.
   - `ai.bicep` — Azure AI Foundry / AI Services connections (Speech, Vision/Doc Intelligence).
@@ -1033,7 +1156,8 @@ flags it for review.**
 
 - **Unit**: each resolver adapter; transcript provider priority; each `BoundaryDetector`;
   fusion scoring/clustering; screenshot dedup (pHash) + selection caps; markdown rendering;
-  ZIP shape; export metadata.
+  ZIP shape; export metadata; **style-profile resolution** (per-dimension confidence precedence,
+  `depth` fallback, thin-example → low-confidence → `depth`, contradiction flagging).
 - **Contract**: API endpoints (submit, sections CRUD, regenerate, capture, export) against a
   test DB; SSE replay via `Last-Event-ID`.
 - **Integration**: worker stage runner with fakes for media/AI; resume-after-failure
@@ -1047,6 +1171,8 @@ flags it for review.**
 - Offline **eval harness** that runs segmentation + note generation and reports:
   section usefulness, boundary quality (vs reference), screenshot relevance, markdown
   correctness, faithfulness to evidence, and estimated user edit effort.
+- **Few-shot style checks**: style fidelity (does output match the example's format/voice) and a
+  **content-leakage** check (no fact from the example appears in notes for an unrelated talk).
 - The harness writes/reads `segmentation.weights` so heuristic weights are tuned from data,
   not guessed — directly supporting the "many speech variations" concern.
 
@@ -1085,3 +1211,5 @@ metadata.json
   either way).
 - Whether to add manual job/video deletion (`DELETE /api/v1/jobs/{job_id}` + cascade) in v1, or
   rely solely on Blob lifecycle rules for cleanup (see **Data retention**).
+- Whether to grow the single saved style default into a **named, multi-profile style library**
+  (post-v1; v1 ships one per-job example set + one saved default).
