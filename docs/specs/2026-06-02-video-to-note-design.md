@@ -21,7 +21,13 @@ fix missed screenshots, section boundaries, and note detail.
 
 To keep perceived latency low, the pipeline **streams sections into the review UI as soon as
 each is drafted** (progressive review). The user can begin reviewing early sections while
-later ones are still being generated.
+later ones are still being generated. While the job is still drafting (`status='active'`),
+review is limited to **content edits that cannot collide with worker writes** — markdown edits
+and screenshot caption/selection/order edits on already-`ready` sections. **Structural edits
+that change section boundaries — split, merge, and boundary time-range edits — are disabled
+until the job reaches `status='review_ready'`**, because the worker may still be drafting and
+reindexing sections whose `order_index`/boundaries those edits would mutate (see **Review
+mutation semantics** and the `409 job_not_review_ready` API rule).
 
 ## Goals
 
@@ -59,7 +65,7 @@ These forks were resolved during brainstorming and are binding for v1:
 | Segmentation | **Hybrid** — uniform signal interface + config weights (recall), single LLM refinement pass (precision/labeling). |
 | Heuristic extensibility | Few general detectors behind one interface; per-speech variation handled by the LLM refinement prompt, not by growing rules. |
 | Media acquisition | **Download once** (yt-dlp), sample frames locally with ffmpeg; store a proxy copy in Blob. |
-| Manual capture | **Backend frame-on-demand** — review streams the stored video; capture calls ffmpeg to extract the exact frame at a timestamp. |
+| Manual capture | **Backend frame-on-demand** — review streams the stored video; capture calls ffmpeg to extract the exact frame at a timestamp. Requires the proxy; unavailable once it expires (degraded state) until re-acquired (see **Data retention**). |
 | Note generation granularity | **One LLM call per section** (enables progressive streaming + per-section regeneration). |
 | Screenshot dedup | Perceptual hashing (pHash) to drop near-duplicate frames. |
 | Frontend | React + Next.js (App Router). |
@@ -424,6 +430,9 @@ CREATE TABLE videos (
   proxy_blob_path text,                  -- stored video proxy for review scrubbing
   created_at      timestamptz NOT NULL DEFAULT now()
 );
+-- At most one canonical (non-placeholder) videos row per resolved URL. Placeholders
+-- (canonical_url NULL) are exempt, so concurrent submits can each create their placeholder.
+CREATE UNIQUE INDEX uq_videos_canonical ON videos(canonical_url) WHERE canonical_url IS NOT NULL;
 
 -- One processing run.
 CREATE TABLE jobs (
@@ -495,6 +504,10 @@ CREATE TABLE sections (
   classification text,                  -- 'text_led' | 'visual_led' | 'mixed'
   confidence     real,
   status         text NOT NULL DEFAULT 'pending', -- 'pending' | 'drafting' | 'ready' | 'edited'
+                                                   -- 'edited' iff the markdown note diverges from the
+                                                   -- AI draft (markdown_edited written). Title /
+                                                   -- boundary / screenshot changes do NOT set it.
+  updated_at     timestamptz NOT NULL DEFAULT now(), -- bumped on every mutation; backs the ETag
   UNIQUE (job_id, order_index)
 );
 CREATE INDEX idx_sections_job ON sections(job_id, order_index);
@@ -629,17 +642,22 @@ POST /api/v1/jobs/{job_id}/cancel  → 200
 
 ```http
 GET    /api/v1/jobs/{job_id}/sections                 → [section + current note + screenshots]
-PATCH  /api/v1/sections/{id}                           # title/boundaries/markdown_edited
+PATCH  /api/v1/sections/{id}                           # title/markdown_edited any time a section is ready;
+                                                       # boundary (start_sec/end_sec) edits → 409 job_not_review_ready
+                                                       #   while status='active'
        # uses If-Unmodified-Since / revision guard → 412 on stale write (optimistic concurrency)
 POST   /api/v1/sections/{id}/regenerate                # body: optional instruction override
                                                        # new revision; prior edited revision kept in history
 GET    /api/v1/sections/{id}/revisions                 → [revision metadata, newest first]
 POST   /api/v1/sections/{id}/revisions/{rev}/restore   # appends a new revision copying {rev}'s content
 POST   /api/v1/sections/{id}/split  { "at_sec": n }    # see Review mutation semantics
+                                                       # 409 job_not_review_ready while status='active'
 POST   /api/v1/sections/merge       { "ids": [a,b] }   # see Review mutation semantics
+                                                       # 409 job_not_review_ready while status='active'
 
 POST   /api/v1/sections/{id}/screenshots/capture { "at_sec": n }
        # API ffmpeg-extracts frame from stored proxy → new screenshot row
+       # 409 media_unavailable if the proxy has expired (re-acquire first)
 PATCH  /api/v1/screenshots/{id}                        # caption/selected/order_index
 DELETE /api/v1/screenshots/{id}
 ```
@@ -648,7 +666,10 @@ DELETE /api/v1/screenshots/{id}
 
 ```http
 GET /api/v1/videos/{video_id}/stream     # HTTP Range requests over the stored proxy
-GET /api/v1/screenshots/{id}/raw         # PNG bytes
+                                         # 409 media_unavailable if the proxy has expired
+GET /api/v1/screenshots/{id}/raw         # PNG bytes (always available; stored asset, not the proxy)
+POST /api/v1/jobs/{job_id}/reacquire-media  # re-download the proxy from canonical_url after expiry
+                                         # → 202; flips media_available back to true when complete
 ```
 
 ### Export
@@ -692,11 +713,17 @@ Internal "(stage N)" references point to this numbering.
 - Validates the video is public and reachable; otherwise fail with
   `unsupported_url` / `video_unavailable`.
 - **Re-submit dedup**: the API creates a placeholder `videos` row at submit (keyed on
-  `source_url`, `canonical_url` null). After this stage resolves `canonical_url`, if *another*
-  `videos` row already has that canonical URL with a present `proxy_blob_path` (and transcript
-  spans), the worker re-points `job.video_id` to the existing row and deletes the placeholder;
-  the media-acquisition and transcript stages then skip straight to skip-if-present. This cuts
-  both cost and latency on re-runs of the same session with different note settings.
+  `source_url`, `canonical_url` null). After this stage resolves `canonical_url`, the worker
+  **claims the canonical row atomically** to avoid two concurrent jobs each downloading the same
+  proxy: under one transaction it takes a `pg_advisory_xact_lock(hashtext(canonical_url))`, then
+  `INSERT ... ON CONFLICT (canonical_url) DO NOTHING` against the
+  `uq_videos_canonical` index. If a canonical row already exists (the conflict, or another job's
+  prior run) it re-points `job.video_id` to that row and deletes its placeholder; otherwise it
+  promotes its own placeholder by setting `canonical_url` (winning the unique index). Whichever
+  job owns the canonical row performs the single download; the other waits on the same row and
+  then skips-if-present once the proxy + transcript exist. This makes duplicate proxy downloads
+  impossible under concurrent submissions and cuts cost/latency on re-runs of the same session
+  with different note settings.
 
 ### 2. Media acquisition (`vtn_ingest`)
 
@@ -916,7 +943,11 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
 - On mount, open SSE to `/jobs/{id}/events` (with `Last-Event-ID` resume).
 - A stage indicator shows: resolving → acquiring → transcribing/indexing → segmenting →
   drafting. On each `section.ready`, append/patch that section in local state and render it
-  immediately — the user can scroll and start editing while later sections arrive.
+  immediately — the user can scroll and start editing markdown/titles/screenshots while later
+  sections arrive. **Structural controls (Split, Merge-up, boundary drag) are disabled until the
+  `done` event / `status='review_ready'`** and show a tooltip ("available once drafting
+  finishes"); this mirrors the `409 job_not_review_ready` API rule so the UI never issues a
+  request the API will reject.
 - `warning` events (e.g. "transcript from speech, not official captions") render as
   non-blocking banners. `error` shows an actionable failure with retry.
 - The `cost.estimate` event renders an "Est. ~$X" banner (recolored if a soft ceiling is set);
@@ -931,10 +962,13 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
 - `SectionList` — ordered sections; per section: title (editable), classification badge,
   timestamp range, markdown editor, screenshot tray, actions (Regenerate, Split, Merge-up,
   Revisions). Regenerating an edited section warns first; a Revisions menu lists prior versions
-  with one-click restore. Split/Merge show the "boundaries changed — regenerate to fit" banner.
+  with one-click restore. Split/Merge/boundary-drag are **disabled until `review_ready`** and,
+  once enabled, show the "boundaries changed — regenerate to fit" banner.
 - `MarkdownEditor` — edit `markdown_edited`; live preview; debounced `PATCH`.
 - `VideoScrubber` — HTML5 player sourced from `/videos/{id}/stream` (Range requests); shows
-  section markers; "Capture frame here" → `POST /sections/{id}/screenshots/capture`.
+  section markers; "Capture frame here" → `POST /sections/{id}/screenshots/capture`. Hidden when
+  `media_available=false` (expired proxy), replaced by a "re-download to scrub/capture" action
+  calling `POST /jobs/{id}/reacquire-media`; existing screenshots and export stay available.
 - `ScreenshotTray` — thumbnails; toggle `selected`, edit caption, reorder, delete.
 - `ExportBar` — triggers export, shows download link.
 
@@ -962,11 +996,21 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
 
 ### Latency budget (target: TTFS ≤ ~1–2 min, 1-hr captioned video)
 
-The honest critical path for time-to-first-section is
-`download proxy → transcript → index + segment the early part → first draft`. The two long
-poles are **media download** and, only when captions are absent, **speech ASR**. This is why
-captions-first (the transcript priority chain) is a *latency* lever, not just a quality one;
-the ASR fallback fires the existing "speech-sourced, slower" `warning`.
+**v1 segmentation is whole-video, not streaming.** `segmenting` joins the *complete* transcript,
+the *complete* visual-event timeline, and the style profile, runs one global fusion + LLM
+refinement pass, and persists *all* sections before `drafting` emits any section. First-section
+emission therefore waits for whole-video transcript + whole-video visual indexing + global
+segmentation — *not* an "early part" of the video. Progressive review then streams sections out
+of `drafting` one at a time; it does **not** mean segmentation is partial or that drafting starts
+before the whole video is segmented. Partial/streaming segmentation (segment-and-draft the early
+transcript before the rest of the video is indexed) is an explicit **post-v1 lever** (below).
+
+The honest critical path for time-to-first-section is therefore
+`download proxy → whole-video transcript + whole-video visual indexing (parallel) → global
+segmentation → first draft`. The two long poles are **media download** and, only when captions
+are absent, **speech ASR**. This is why captions-first (the transcript priority chain) is a
+*latency* lever, not just a quality one; the ASR fallback fires the existing "speech-sourced,
+slower" `warning`.
 
 Per-stage soft budgets (targets, tracked in App Insights; alert if p50 is breached):
 
@@ -974,14 +1018,16 @@ Per-stage soft budgets (targets, tracked in App Insights; alert if p50 is breach
 | --- | --- | --- |
 | `resolving` | < 5s | |
 | `acquiring_media` (720p proxy) | < 30–60s | ⚠ main TTFS risk; bandwidth-bound |
-| `transcribing` | < 10s (captions) / ~0.3–0.5× realtime (ASR) | ASR is the other long pole |
-| `indexing_visual` (coarse) | parallel with transcript | early windows ready first |
-| `segmenting` (fusion + 1 LLM call) | < 20s | |
+| `transcribing` (whole video) | < 10s (captions) / ~0.3–0.5× realtime (ASR) | ASR is the other long pole |
+| `indexing_visual` (whole video, two-tier) | parallel with transcript; must complete before `segmenting` | two-tier sampling keeps it well under the transcript/download poles for captioned video |
+| `segmenting` (whole-video fusion + 1 LLM call) | < 20s | needs the complete transcript + visual timeline |
 | first-section draft | < 15s | |
 
-→ ~2 min is realistic for a captioned video with a fast download. Driving TTFS below ~30s would
-require **streaming segmentation of the early transcript** (segment before the whole video is
-indexed); that is an explicit **post-v1 lever**, out of scope for v1.
+→ ~2 min is realistic for a captioned video with a fast download, dominated by proxy download.
+Because v1 segments the whole video before the first draft, TTFS cannot drop below the
+whole-video transcript + visual-indexing + segmentation cost; driving TTFS below ~30s would
+require **streaming segmentation of the early transcript** (segment-and-draft before the whole
+video is indexed), which is an explicit **post-v1 lever**, out of scope for v1.
 
 ---
 
@@ -1026,6 +1072,30 @@ lifecycle-management rules; tunable in config):
   (default 30 days idle), since the proxy backs review scrubbing, manual capture, and re-submit
   dedup. Expiring it forces a re-download on the next run.
 
+### Proxy expiry and the degraded ("media unavailable") state
+
+A job can outlive its proxy: jobs, sections, notes, and selected screenshots have no idle TTL,
+but the proxy blob expires after the default 30-day idle window. Because the proxy is the single
+source of truth for scrubbing and frame-on-demand capture, a retained job whose proxy has expired
+can still be read and exported but **cannot scrub, capture new frames, or regenerate frames from
+video**. The design makes this explicit rather than leaving dead controls:
+
+- **`media_available` is derived, not stored** — it is `true` iff `videos.proxy_blob_path` is set
+  *and* the referenced blob still exists. `GET /api/v1/jobs/{job_id}` and the sections payload
+  include `media_available` so the UI can render the correct mode. (A lifecycle rule that deletes
+  the blob does not null `proxy_blob_path`; the API treats a missing blob as unavailable and may
+  lazily null the column.)
+- **Re-acquire on demand** — because media acquisition is skip-if-present and the canonical URL is
+  recorded, the user can trigger a re-download (`POST /api/v1/jobs/{job_id}/reacquire-media`, see
+  API) that restores the proxy from source and flips `media_available` back to `true`. Frame
+  timestamps stay valid because the re-downloaded proxy is the same capped-resolution copy.
+- **Degraded behavior when `media_available=false`** — `GET /videos/{id}/stream` and
+  `POST /sections/{id}/screenshots/capture` return `409 media_unavailable`; the review UI hides the
+  scrubber and "Capture frame here" and shows a "video no longer cached — re-download to scrub or
+  capture" affordance. **Markdown/title/caption/selection edits and export remain fully available**
+  because export is assembled from stored `screenshots` assets + notes, which are retained with the
+  job — already-selected screenshots survive proxy expiry.
+
 A `DELETE /api/v1/jobs/{job_id}` (and cascade) is **out of scope for v1**; lifecycle rules are
 the only cleanup mechanism. Manual job deletion is tracked in **Open questions**.
 
@@ -1036,27 +1106,57 @@ the only cleanup mechanism. Manual job deletion is tracked in **Open questions**
 Principle: **user edits are never silently lost; a boundary change recomputes derived data but
 flags it for review.**
 
+**Mutation gating by job status — who owns the section set.** While `status='active'` the worker
+owns the `sections` table: it is still inserting rows and assigning `order_index` as it drafts.
+During this window the API allows only edits that target a single already-`ready` (or `edited`)
+section and cannot move boundaries or reindex: **markdown edits, title edits, and screenshot
+caption/selection/order edits**. Edits that would change the section *set* or its boundaries —
+**split, merge, and boundary (`start_sec`/`end_sec`) edits** — are rejected with
+`409 job_not_review_ready` until the job reaches `status='review_ready'`. Once `review_ready`,
+the worker has stopped writing sections and all mutations below are permitted. This makes worker
+writes and user structural edits mutually exclusive in time, so there is no need to lock,
+version, or cancel in-flight worker writes against user boundary changes, and `order_index`
+uniqueness, section IDs, screenshots, and late `section.ready` events are only ever mutated by
+one writer at a time. (Late `section.ready` events for a section the user already touched are
+handled by the streaming-vs-editing rule at the end of this section.)
+
 - **Edit markdown** — debounced `PATCH` to `markdown_edited` on the current revision; never
-  touches `markdown_draft`.
+  touches `markdown_draft`. Allowed during drafting and after `review_ready`. **This is the only
+  mutation that flips `status` to `edited`** — `edited` means "the note content diverges from the
+  AI draft," which is exactly what the regenerate-overwrites-your-edits warning keys off. Title
+  edits, boundary edits, split/merge, and screenshot changes bump `updated_at` but leave `status`
+  at `ready`/`edited` unchanged (a title or screenshot tweak is not a note rewrite).
 - **Regenerate** — creates a *new* `section_notes` revision with the new draft. If the prior
   revision had `markdown_edited` set, the UI warns first; the edited revision stays in history
   and is **one-click restorable** (restore appends a new revision copying that revision's
   content, keeping the table append-only).
 - **Screenshots** — on *any* boundary change, screenshots **reassign by timestamp containment**
   to the resulting section(s); a manual screenshot outside all ranges attaches to the nearest.
-- **Split / Merge — never auto-call the LLM** (keeps review snappy and cost predictable):
+- **Split / Merge — only after `review_ready`; never auto-call the LLM** (keeps review snappy and
+  cost predictable):
   - *Split at `at_sec`*: child 1 inherits the parent's current note as a fresh revision; child 2
     starts `pending`. Banner: "boundaries changed — regenerate to fit."
   - *Merge*: the result inherits the concatenation of inputs' current notes as a new `edited`
     revision. Same banner.
   - `order_index` is reindexed within a single transaction (preserving `UNIQUE(job_id,
     order_index)`).
-- **Edit boundaries** (without split/merge) — adjusts the time range, reassigns screenshots by
-  timestamp, leaves the note untouched, and shows the regenerate banner if the range changed
-  materially.
+- **Edit boundaries** (without split/merge) — **allowed only after `review_ready`**; adjusts the
+  time range, reassigns screenshots by timestamp, leaves the note untouched, and shows the
+  regenerate banner if the range changed materially.
 - **Streaming-vs-editing concurrency** — SSE patches apply only to sections still in
   `{pending, drafting}`; once a section is `ready` or `edited`, late worker events for it are
-  ignored. `PATCH` uses a revision / `updated_at` guard and returns `412` on a stale write.
+  ignored. `PATCH` uses an optimistic-concurrency guard and returns `412` on a stale write.
+
+**Optimistic concurrency contract (`updated_at` / ETag).** Every mutating section/note/screenshot
+write bumps the owning `sections.updated_at` to `now()` inside the same transaction (markdown edit
+on a `section_notes` revision, title/boundary edit, and any screenshot caption/selection/order/
+add/delete all touch the parent section's row). `GET .../sections` returns each section's
+`updated_at` and an `ETag` header derived from it (`ETag: "<section_id>:<epoch_millis>"`). A
+mutating `PATCH`/`POST`/`DELETE` must send `If-Unmodified-Since` (the `updated_at` value) **or**
+`If-Match` (the ETag); the API compares against the current row inside the write transaction and
+returns **412** if it has advanced. Clients refetch the section on 412 and re-apply. This is
+distinct from the **409** status-gating errors (`job_not_review_ready`, `media_unavailable`), which
+reflect the job's state rather than a stale read.
 
 ---
 
@@ -1193,8 +1293,17 @@ metadata.json
 
 - `note.md` references screenshots with relative paths, e.g.
   `![Demo architecture](images/0002-demo.png)`.
+- **Filenames are generated deterministically at export time, not stored.** The exporter walks
+  **selected** screenshots in `(sections.order_index, screenshots.order_index)` order and assigns
+  `NNNN-<slug>.png`, where `NNNN` is a 1-based, zero-padded sequence over that ordered list and
+  `<slug>` is a slugified caption (falling back to the section title, then `frame`). Because the
+  sequence is recomputed from current order on every export, **user reorder/delete reflows the
+  numbering with no gaps and no stale references** — `note.md` and the `images/` folder are built
+  in the same pass from the same ordering, so they cannot drift. Unselected screenshots are
+  excluded entirely. Slug collisions within an export get a `-2`, `-3` suffix.
 - `metadata.json` stores source URL, generation timestamp, note depth, transcript source,
-  per-section timestamps, and per-screenshot timestamps for audit/re-import.
+  per-section timestamps, and per-screenshot timestamps, plus each exported filename mapped to its
+  `screenshot.id` and `at_sec`, for audit/re-import.
 
 ---
 
