@@ -254,18 +254,22 @@ flowchart TD
     R --> A["acquiring_media — vtn_ingest<br/>writes: proxy video (Blob)"]
     A --> T["transcribing — vtn_transcript<br/>writes: transcript_spans"]
     A --> V["indexing_visual — vtn_visual<br/>writes: visual_events + frames"]
-    A --> E["extracting_style — vtn_style<br/>(only if examples)<br/>writes: style_profile"]
-    T --> S["segmenting — vtn_segment<br/>writes: sections (titles, gists)<br/>uses: style_profile.granularity"]
+    Q -. examples or saved default only .-> E["extracting_style — vtn_style<br/>writes: style_profile"]
+    T --> S["segmenting — vtn_segment<br/>writes: sections (titles, gists)"]
     V --> S
-    E --> S
+    E -->|granularity| S
     S --> D["drafting — vtn_notes<br/>writes: section_notes + screenshots<br/>emits one section.ready each"]
+    E -.->|style, density, derived prompt| D
     D --> RR([review_ready])
     RR -. user clicks Export .-> X["exported — vtn_export<br/>writes: ZIP (Blob)"]
 ```
 
-In Diagram 2, `acquiring_media` fans out to three parallel stages that **join** at `segmenting`
-(whole-video, not streaming — drafting starts only after all sections exist); `exported` hangs
-off `review_ready` by a **dashed** arrow because it is user-triggered in review, not part of the
+In Diagram 2, `acquiring_media` fans out to `transcribing` + `indexing_visual`, which **join** at
+`segmenting` (whole-video, not streaming — drafting starts only after all sections exist).
+`extracting_style` branches from the start (it needs only the submitted examples / saved default,
+not the media) and its `style_profile` **fans out to two consumers**: the `granularity` dimension
+into `segmenting`, and `style`/`density`/`derived prompt` into `drafting`. `exported` hangs off
+`review_ready` by a **dashed** arrow because it is user-triggered in review, not part of the
 automatic run.
 
 ---
@@ -486,7 +490,7 @@ queued
   → acquiring_media  (download proxy video)
   → transcribing     (captions or speech)            ─┐ run concurrently
   → indexing_visual  (frame sampling, change/OCR/kf)   │
-  → extracting_style (distill example notes → profile) ─┘ (only if examples given)
+  → extracting_style (distill example notes → profile) ─┘ (only with examples or a saved default)
   → segmenting       (signal detection → fusion → LLM refinement; uses style profile)
   → drafting         (per-section notes + screenshot selection, emitted progressively)
   → review_ready     (all sections drafted; awaiting human review)
@@ -526,7 +530,8 @@ Types are PostgreSQL. `id` columns are `uuid` (default `gen_random_uuid()`). Tim
 `timestamptz`. Time offsets within a video are `numeric(10,3)` seconds.
 
 ```sql
--- A submitted source video (one per resolved canonical URL is encouraged but not enforced).
+-- A submitted source video. Exactly one non-placeholder row per canonical URL, enforced by
+-- uq_videos_canonical (below); placeholders (canonical_url NULL) are exempt.
 CREATE TABLE videos (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_url      text NOT NULL,
@@ -689,8 +694,11 @@ sections, satisfying "regenerate one section without invalidating the whole job.
 ```
 
 Raw example markdown lives in the `examples` Blob container; `prompts.examples` /
-`style_defaults.examples` hold only the manifest. The `source` field is what the UI reads to show
-which dimensions came from examples vs `depth`, and to flag a contradiction.
+`style_defaults.examples` hold only the manifest. The submit/`PUT style-default` endpoints accept
+example notes inline as `{name, markdown}`; the API writes each `markdown` body to the `examples`
+container and stores the resulting `{name, blob_path}` manifest in the row (the inline `markdown`
+is not persisted in PostgreSQL). The `source` field is what the UI reads to show which dimensions
+came from examples vs `depth`, and to flag a contradiction.
 
 ---
 
@@ -725,13 +733,16 @@ POST /api/v1/jobs
   "use_default_style": true,                                    // optional; apply the saved default if no examples
   "save_style_as_default": false                                // optional; persist this job's examples as default
 }
-→ 202 { "job_id": "uuid", "video_id": "uuid", "cost_estimate": { "total_usd": 1.42, "breakdown": {...} } }
+→ 202 { "job_id": "uuid", "video_id": "uuid (provisional)", "cost_estimate": { "total_usd": 1.42, "breakdown": {...} } }
+# video_id is the placeholder; resolving/dedup may delete it and re-point job.video_id, so clients
+#   read the current video from GET /jobs/{job_id} (and use that id for /videos/{video_id}/stream)
 # the resolved style_profile is not known yet; it arrives via the `style.resolved` SSE event
 ```
 
 ```http
 GET /api/v1/jobs/{job_id}
-→ 200 { job, video, prompt, stage, status, sections_summary }
+→ 200 { job, video, prompt, stage, status, sections_summary, media_available, cost }
+#   media_available: derived (proxy blob still present); cost: estimate + actuals from job_costs
 ```
 
 ```http
@@ -776,7 +787,8 @@ GET /api/v1/videos/{video_id}/stream     # HTTP Range requests over the stored p
                                          # 409 media_unavailable if the proxy has expired
 GET /api/v1/screenshots/{id}/raw         # PNG bytes (always available; stored asset, not the proxy)
 POST /api/v1/jobs/{job_id}/reacquire-media  # re-download the proxy from canonical_url after expiry
-                                         # → 202; flips media_available back to true when complete
+                                         # → 202; enqueues an acquiring_media-only worker run via the
+                                         #   same queue; flips media_available to true when complete
 ```
 
 ### Export
@@ -884,9 +896,10 @@ default), so it runs in parallel from job submit and joins at `segmenting`. Two 
 2. **Resolution (deterministic, every job).** Merge the extracted (or default) dimensions with the
    `depth` preset **per dimension**: a confidently-inferred example dimension wins
    (`source='examples'`); otherwise the `depth` preset fills in (`source='depth'`). `depth` maps
-   to default `granularity`/`density` (Brief → coarse/low … Thorough → fine/high). `style_descriptor`
-   and `derived_prompt` have no `depth` equivalent, so they come from examples when present.
-   Persist the merged result to `prompts.style_profile`.
+   to default `granularity`/`density` (Brief → coarse/low, Balanced → medium/medium, Thorough →
+   fine/high; **`custom` → medium/medium**, since a custom prompt sets voice, not detail level).
+   `style_descriptor` and `derived_prompt` have no `depth` equivalent, so they come from examples
+   when present. Persist the merged result to `prompts.style_profile`.
 
 Resolution runs for **every** job, so `style_profile` is always populated before `segmenting`
 reads it — downstream stages keep one code path. The `extracting_style` stage (and its LLM cost)
@@ -1127,6 +1140,7 @@ Per-stage soft budgets (targets, tracked in App Insights; alert if p50 is breach
 | `acquiring_media` (720p proxy) | < 30–60s | ⚠ main TTFS risk; bandwidth-bound |
 | `transcribing` (whole video) | < 10s (captions) / ~0.3–0.5× realtime (ASR) | ASR is the other long pole |
 | `indexing_visual` (whole video, two-tier) | parallel with transcript; must complete before `segmenting` | two-tier sampling keeps it well under the transcript/download poles for captioned video |
+| `extracting_style` (only if examples) | parallel from submit; off critical path | one cheap LLM call; ready before `segmenting` |
 | `segmenting` (whole-video fusion + 1 LLM call) | < 20s | needs the complete transcript + visual timeline |
 | first-section draft | < 15s | |
 
