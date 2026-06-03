@@ -186,57 +186,64 @@ sequenceDiagram
 
     U->>API: POST /jobs (url, depth, examples?)
     API->>DB: create job + placeholder video
-    API->>Bus: enqueue {job_id}
-    API-->>U: 202 {job_id, cost_estimate}
-
-    Note over U,DB: PROGRESS PHASE — one SSE stream, push only
+    API->>Bus: enqueue job
+    API-->>U: 202 (job_id, cost_estimate)
     U->>API: open SSE GET /jobs/{id}/events
     API->>DB: LISTEN per-job channel
-    Bus->>W: deliver {job_id}
-    Note over W,API: every stage: write artifact + job_events row → NOTIFY → API relays the SSE event below
+    Bus->>W: deliver job
 
-    W->>W: resolving (vtn_ingest)
-    W->>DB: canonical_url, claim/dedup video
-    API-->>U: stage(resolving) + cost.estimate
+    rect rgb(234, 244, 255)
+    Note over U,DB: PROGRESS PHASE — each worker stage writes rows + emits an SSE event
 
-    W->>W: acquiring_media (vtn_ingest)
+    Note over W,DB: resolving (vtn_ingest)
+    W->>DB: canonical_url + claim/dedup video
+    API-->>U: event stage(resolving) + cost.estimate
+
+    Note over W,DB: acquiring_media (vtn_ingest)
     W->>DB: proxy video to Blob
-    API-->>U: stage(acquiring_media)
+    API-->>U: event stage(acquiring_media)
 
+    Note over W,DB: transcribing + indexing_visual + extracting_style (parallel)
     par transcribing (vtn_transcript)
-        W->>DB: transcript_spans (whole video)
+        W->>DB: transcript_spans
     and indexing_visual (vtn_visual)
-        W->>DB: visual_events + frames to Blob (whole video)
-    and extracting_style (vtn_style, only if examples)
+        W->>DB: visual_events + frames
+    and extracting_style (vtn_style, if examples)
         W->>DB: style_profile
     end
-    API-->>U: stage(transcribing/indexing) + style.resolved
+    API-->>U: event stage(transcribing/indexing) + style.resolved
 
-    W->>W: segmenting (vtn_segment) — whole-video fusion + LLM refinement
+    Note over W,DB: segmenting (vtn_segment) — whole-video fusion + LLM refinement
     W->>DB: sections (boundaries, titles, gists)
-    API-->>U: stage(segmenting)
+    API-->>U: event stage(segmenting)
 
-    loop drafting (vtn_notes) — per section, may finish out of order
-        W->>W: select screenshots + generate note
+    Note over W,DB: drafting (vtn_notes) — loops per section
+    loop each section (may finish out of order)
         W->>DB: section_notes + screenshots
-        API-->>U: section.ready (render, sort by order_index)
+        API-->>U: event section.ready
     end
 
     W->>DB: status = review_ready
-    API-->>U: done
+    API-->>U: event done
+    end
 
-    Note over U,DB: REVIEW PHASE — same page, synchronous REST, worker NOT involved
+    rect rgb(234, 255, 240)
+    Note over U,DB: REVIEW PHASE — synchronous REST; worker NOT involved
+
+    Note over U,DB: review_ready (no worker; user edits)
     U->>API: PATCH /sections/{id} (edit note/title)
     U->>API: POST /sections/{id}/regenerate
-    API->>DB: vtn_notes new section_notes revision
-    U->>API: POST /sections/{id}/split or /merge (only after review_ready)
-    API->>DB: reindex sections in one transaction
-    U->>API: GET /videos/{id}/stream (Range, scrub)
-    U->>API: POST /sections/{id}/screenshots/capture
-    API->>DB: ffmpeg 1 frame from proxy to Blob + screenshots row
+    API->>DB: vtn_notes → new section_notes revision
+    U->>API: POST /sections/{id}/split or /merge (after review_ready)
+    API->>DB: reindex sections (one txn)
+    U->>API: GET /videos/{id}/stream (scrub) + capture
+    API->>DB: ffmpeg frame to Blob + screenshots row
+
+    Note over U,DB: exported (vtn_export)
     U->>API: POST /jobs/{id}/export
-    API->>DB: vtn_export builds ZIP to Blob
+    API->>DB: build ZIP to Blob
     API-->>U: download_url (status = exported)
+    end
 ```
 
 **Diagram 2 — worker pipeline internals (stage order, packages, artifacts):**
