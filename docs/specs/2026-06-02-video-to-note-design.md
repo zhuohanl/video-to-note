@@ -203,7 +203,7 @@ sequenceDiagram
     W->>DB: proxy video to Blob
     API-->>U: event stage(acquiring_media)
 
-    Note over W,DB: transcribing + indexing_visual + extracting_style (parallel)
+    Note over W,DB: analyzing (parallel fork) — transcribing + indexing_visual + extracting_style
     par transcribing (vtn_transcript)
         W->>DB: transcript_spans
     and indexing_visual (vtn_visual)
@@ -505,11 +505,18 @@ Terminal/side states:
 runs, recorded in `jobs.stage`. This is the canonical meaning throughout the spec. The
 finer-grained numbered items in **Pipeline (detailed algorithms)** are **steps**, not stages.
 
+A stage **contains** one or more steps (mapping in *Pipeline (detailed algorithms)*):
+single-step stages like `resolving` look 1:1, while `segmenting` (steps 5–6) and `drafting`
+(steps 7–9) bundle several. Only **stage transitions** update `jobs.stage` and emit a `stage`
+event; finishing an individual step does not — the steps inside a stage complete silently. (The
+one exception is `drafting`, which additionally emits a `section.ready` per section as it runs.)
+
 The diagram blends two columns for readability. `jobs.stage` tracks **pipeline progress**
-(`queued` → … → `drafting`); `jobs.status` holds the **lifecycle state** (`active`, then one of
-the terminal/await states `review_ready` / `exported` / `failed` / `canceled`). While the worker
-runs, `status='active'` and `stage` advances; on completion `stage` stays at its last value and
-`status` moves to `review_ready`, then `exported` after export.
+(`queued` → `resolving` → `acquiring_media` → `analyzing` → `segmenting` → `drafting`);
+`jobs.status` holds the **lifecycle state** (`active`, then one of the terminal/await states
+`review_ready` / `exported` / `failed` / `canceled`). While the worker runs, `status='active'`
+and `stage` advances; on completion `stage` stays at its last value and `status` moves to
+`review_ready`, then `exported` after export.
 
 `transcribing` and `indexing_visual` both depend only on `acquiring_media` and run in
 parallel. `extracting_style` (present only when the job supplies example notes) depends only on
@@ -517,6 +524,16 @@ those examples, so it can start immediately at job submit and run alongside the 
 visual work. `segmenting` joins all of them. Each transition is persisted; a failure records the
 stage so a retry resumes from the last completed artifact rather than re-downloading or
 re-transcribing.
+
+**Representing the parallel fork in a scalar `jobs.stage`.** Because those branches run
+concurrently, `jobs.stage` cannot name a single one. The **stage orchestrator is the sole writer
+of `jobs.stage`**: on entering the fork it sets the super-stage `analyzing`, and flips it to
+`segmenting` on join. The parallel branches **never write `jobs.stage`** — they only emit their
+own `stage` events into `job_events` and write their artifacts — so there is no write race on the
+column. Per-branch progress (which of the three have started/finished) is reconstructed from the
+append-only `job_events` log, which is **authoritative for fine-grained progress** and is replayed
+on reconnect via `Last-Event-ID`; `jobs.stage` is only a coarse summary pointer. Resume stays
+correct regardless of the scalar's value because each branch's runner is skip-if-present.
 
 ### Idempotency and resumability
 
@@ -554,7 +571,9 @@ CREATE UNIQUE INDEX uq_videos_canonical ON videos(canonical_url) WHERE canonical
 CREATE TABLE jobs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   video_id      uuid NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-  stage         text NOT NULL DEFAULT 'queued',
+  stage         text NOT NULL DEFAULT 'queued',  -- worker-written, sole writer = orchestrator:
+                                                  -- 'queued'|'resolving'|'acquiring_media'|'analyzing'|'segmenting'|'drafting'
+                                                  -- ('analyzing' = the parallel transcribe/index/style fork)
   status        text NOT NULL DEFAULT 'active',  -- 'active' | 'failed' | 'review_ready' | 'exported' | 'canceled'
   error_code    text,
   error_message text,
