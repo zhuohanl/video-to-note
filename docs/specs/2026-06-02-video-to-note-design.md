@@ -307,6 +307,7 @@ CREATE TABLE sections (
   start_sec      numeric(10,3) NOT NULL,
   end_sec        numeric(10,3) NOT NULL,
   title          text,
+  gist           text,                  -- one-line summary; feeds the cross-section continuity outline
   classification text,                  -- 'text_led' | 'visual_led' | 'mixed'
   confidence     real,
   status         text NOT NULL DEFAULT 'pending', -- 'pending' | 'drafting' | 'ready' | 'edited'
@@ -455,7 +456,9 @@ GET  /api/v1/exports/{id}/download  → application/zip
 
 Regenerate/split/merge during review are **synchronous API operations** that call the same
 shared packages the worker uses (e.g. `vtn_notes.generate_section`); they do not go through
-Service Bus, keeping review interactions snappy.
+Service Bus, keeping review interactions snappy. On regenerate, the continuity context (global
+outline + concept ledger) is rebuilt from the job's sibling sections' current titles/notes, so
+a single regenerated section stays consistent with the rest.
 
 ---
 
@@ -563,9 +566,11 @@ Deterministic fusion for **recall**, LLM for **precision/labeling**:
    transcript: per candidate section → index, `start`/`end`, a short excerpt (first/last
    sentences + keywords), slide OCR text, contributing signal types, and visual-event counts.
    The LLM may: merge over-segmented neighbors, drop spurious boundaries, split a section *only
-   at an anchor timestamp it was given* (so it cannot fabricate a time), write a title, and
-   classify each as `text_led | visual_led | mixed`. It returns strict JSON keyed by input
-   index so results map back to timestamps. This absorbs per-speech variation rules cannot.
+   at an anchor timestamp it was given* (so it cannot fabricate a time), write a title and a
+   one-line gist, and classify each as `text_led | visual_led | mixed`. It returns strict JSON
+   keyed by input index so results map back to timestamps. The titles + gists form the **global
+   outline** that drives cross-section continuity at note-generation time (stage 8). This
+   absorbs per-speech variation rules cannot.
    - **Robustness**: low temperature; schema-validated output; on invalid JSON, one retry, then
      fall back to the unrefined deterministic boundaries with a quality `warning` — never a hard
      failure.
@@ -590,10 +595,27 @@ Per section:
   source; cached and reused per section.
 - For each section, in `order_index` order with bounded concurrency, call the section
   generator with: section transcript, small neighbor context, visual/OCR summary, selected
-  screenshot captions/timestamps, and the depth template or custom prompt.
+  screenshot captions/timestamps, the **continuity context** (below), and the depth template or
+  custom prompt.
+- **Cross-section continuity** (avoid repeating content across sections):
+  - *Primary, deterministic, parallel-safe* — a **global section outline** is available before
+    any note generation begins (titles + classification + a one-line gist per section, produced
+    by the fusion/refinement step). Every section call receives this outline, so each draft
+    knows what was introduced earlier and what later sections will cover, without depending on
+    other sections' generated prose. This works under bounded concurrency and out-of-order
+    completion because the outline is computed up front.
+  - *Refinement (best-effort)* — a compact **concept ledger** (key terms/claims already drafted)
+    accumulates as sections finish; when a section starts, it also receives the ledger entries
+    of any already-completed predecessors. It never blocks on in-flight predecessors, so it
+    stays deterministic and non-serializing.
+  - The continuity instruction: *assume the reader proceeds in order; define a concept the first
+    time it appears, but reference (don't re-explain) concepts the outline shows were introduced
+    in an earlier section.* This refines "self-contained" to mean **self-contained but not
+    redundant**.
 - Prompt templates (in `vtn_notes/prompts/`), one per depth, all sharing guardrails:
   preserve technical detail, clear headings, reference screenshots by relative path, **do not
-  invent claims unsupported by transcript/visual evidence**, keep the section self-contained.
+  invent claims unsupported by transcript/visual evidence**, keep each section self-contained
+  but not redundant (see continuity, above).
 - Write `section_notes(revision=1, markdown_draft=...)`, set `sections.status='ready'`, and
   publish a `section.ready` event → streamed to the UI.
 
