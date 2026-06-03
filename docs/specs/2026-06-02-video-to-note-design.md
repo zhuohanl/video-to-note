@@ -117,8 +117,9 @@ These forks were resolved during brainstorming and are binding for v1:
 
 - **Frontend (Next.js App Router)**: submit form, progress view (SSE consumer), review editor
   (section list, markdown editor, video scrubber, screenshot tray), export trigger/download.
-- **API (FastAPI on Azure Container Apps)**: validates submissions, creates `videos`/`jobs`
-  rows, enqueues work, exposes job/section/screenshot/export endpoints, relays progress via
+- **API (FastAPI on Azure Container Apps)**: validates submissions, creates the `job` plus a
+  placeholder `videos` row (keyed on `source_url`; `canonical_url` is resolved later by the
+  worker), enqueues work, exposes job/section/screenshot/export endpoints, relays progress via
   SSE, serves stored video range requests and frame-on-demand, builds export ZIPs.
 - **Worker (Azure Container Apps Job, Python)**: the pipeline. Consumes a Service Bus message,
   runs stages, writes artifacts to Blob and rows to PostgreSQL, and emits progress events the
@@ -129,10 +130,14 @@ These forks were resolved during brainstorming and are binding for v1:
 
 ### End-to-end sequence
 
-1. User submits URL + note settings. API creates `video` + `job` (stage=`queued`) and
-   enqueues a Service Bus message containing `job_id`.
-2. Worker picks up the message, transitions stages, and persists artifacts.
-3. As each section is drafted, the worker writes the `section` + `section_note` rows and
+1. User submits URL + note settings. API creates a `job` (stage=`queued`) + a placeholder
+   `video` (keyed on `source_url`, `canonical_url` null) and enqueues a Service Bus message
+   containing `job_id`.
+2. Worker picks up the message, transitions stages, and persists artifacts. During `resolving`
+   it fills `canonical_url`; if a prior `video` with that canonical URL already has a proxy +
+   transcript, it re-points `job.video_id` to that video, drops the placeholder, and the
+   media/transcript stages skip-if-present (see Re-submit dedup).
+3. As each section is drafted, the worker writes the `section` + `section_notes` rows and
    publishes a `section.ready` progress event.
 4. Frontend, subscribed via SSE, renders sections as they arrive.
 5. User reviews/edits, optionally regenerates sections or captures frames (synchronous API
@@ -168,9 +173,11 @@ budgets) live in **Pipeline (detailed algorithms)** further down.
 for Build/Ignite session pages, `GenericResolver` fallback) each answer `can_handle(url)`; the
 first match runs `resolve(url)` to produce the canonical URL, source type, title, duration, and
 a media locator. The stage validates the video is public and reachable (else `unsupported_url` /
-`video_unavailable`). **Re-submit dedup**: if this canonical URL was already processed and its
-proxy + transcript still exist, the expensive download/transcribe stages are skipped and only a
-new `job` is created.
+`video_unavailable`), then writes the resolved `canonical_url` onto the placeholder `videos`
+row. **Re-submit dedup**: if another `videos` row already has this `canonical_url` with a present
+proxy + transcript, the worker re-points `job.video_id` to that existing row and deletes the
+placeholder — so the later media/transcript stages skip-if-present. This cuts cost and latency
+on re-runs of the same session with different note settings.
 
 ### `acquiring_media` (`vtn_ingest`)
 
@@ -202,7 +209,7 @@ transcript is cheap and used by a single detector, so it happens inside `segment
 ### `indexing_visual` (`vtn_visual`)
 
 **What** — Extract a timeline of `visual_events` (slide changes, title/OCR changes, demos,
-keyframes) from the video frames.
+keyframes, low-speech/high-visual moments) from the video frames.
 
 > **"Indexing" here is signal extraction, not a search index.** Neither this stage nor the
 > transcript stage builds a searchable / vector index, and there is no semantic-search feature in
@@ -244,16 +251,18 @@ questions**.
 and classifications.
 
 **How** — Every signal source implements one `BoundaryDetector` interface emitting
-`BoundaryCandidate`s, so adding a variation is one detector or one config weight — never a fusion
-edit. This is also where the transcript is windowed (~20–40s) and embedded — the work a
-"transcript indexing" stage would do — performed inside the `SemanticShiftDetector` rather than
-as a separate stage. Deterministic fusion favors **recall** (cluster nearby candidates, score by configurable
-per-signal weights, keep above a threshold, snap boundaries to transcript-span starts / slide
-frames). A single **LLM refinement pass** then adds **precision + labeling**: it merges
-over-segmentation, drops spurious boundaries, and writes each section's title, one-line gist,
-and `text_led | visual_led | mixed` class. The titles + gists become the global outline that
-keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
+`BoundaryCandidate`s, so adding a variation is one detector or one config weight — never a
+fusion edit. Deterministic fusion favors **recall** (cluster nearby candidates, score by
+configurable per-signal weights, keep above a threshold, snap boundaries to transcript-span
+starts / slide frames). A single **LLM refinement pass** then adds **precision + labeling**: it
+merges over-segmentation, drops spurious boundaries, and writes each section's title, one-line
+gist, and `text_led | visual_led | mixed` class. The titles + gists become the global outline
+that keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
 budgeting are in the detailed section.)
+
+This stage is also where the transcript is windowed (~20–40s) and embedded — the work a
+"transcript indexing" stage would do — performed inside the `SemanticShiftDetector` rather than
+as a separate stage.
 
 ### `drafting` (`vtn_notes`)
 
@@ -349,8 +358,14 @@ Terminal/side states:
   canceled
 ```
 
+The diagram blends two columns for readability. `jobs.stage` tracks **pipeline progress**
+(`queued` → … → `drafting`); `jobs.status` holds the **lifecycle state** (`active`, then one of
+the terminal/await states `review_ready` / `exported` / `failed` / `canceled`). While the worker
+runs, `status='active'` and `stage` advances; on completion `stage` stays at its last value and
+`status` moves to `review_ready`, then `exported` after export.
+
 `transcribing` and `indexing_visual` both depend only on `acquiring_media` and run in
-parallel. `segmenting` joins them. Each transition is persisted; `failed` records the stage so
+parallel. `segmenting` joins them. Each transition is persisted; a failure records the stage so
 a retry resumes from the last completed artifact rather than re-downloading or re-transcribing.
 
 ### Idempotency and resumability
@@ -593,7 +608,10 @@ a single regenerated section stays consistent with the rest.
 
 ## Pipeline (detailed algorithms)
 
-All stages live in `worker/stages` and call shared packages.
+All stages live in `worker/stages` and call shared packages. The numbered steps below are finer-
+grained than the named state-machine stages: steps 5–6 together are the `segmenting` stage, and
+steps 7–9 together are the `drafting` stage. Internal "(stage N)" references point to this
+numbering.
 
 ### 1. URL resolution & ingestion (`vtn_ingest`)
 
@@ -604,9 +622,11 @@ All stages live in `worker/stages` and call shared packages.
   `GenericResolver` (fallback).
 - Validates the video is public and reachable; otherwise fail with
   `unsupported_url` / `video_unavailable`.
-- **Re-submit dedup**: after resolving `canonical_url`, if a `videos` row already exists with a
-  present `proxy_blob_path` (and transcript spans), reuse those artifacts and only create a new
-  `job` — the media-acquisition and transcript stages skip straight to skip-if-present. This cuts
+- **Re-submit dedup**: the API creates a placeholder `videos` row at submit (keyed on
+  `source_url`, `canonical_url` null). After this stage resolves `canonical_url`, if *another*
+  `videos` row already has that canonical URL with a present `proxy_blob_path` (and transcript
+  spans), the worker re-points `job.video_id` to the existing row and deletes the placeholder;
+  the media-acquisition and transcript stages then skip straight to skip-if-present. This cuts
   both cost and latency on re-runs of the same session with different note settings.
 
 ### 2. Media acquisition (`vtn_ingest`)
@@ -715,7 +735,7 @@ Deterministic fusion for **recall**, LLM for **precision/labeling**:
 
 Per section:
 1. Gather `visual_events` within `[start_sec, end_sec]`.
-2. Score by `event_type` weight × `confidence`, boosting slide/title/diagram/demo frames.
+2. Score by `event_type` weight × `confidence`, boosting slide/title/demo frames.
 3. Deduplicate via `phash` Hamming distance (drop near-identical frames).
 4. Select top-N by depth: Thorough ≈ up to 1 per ~30–45s of visual content, Balanced fewer,
    Brief minimal. `visual_led` sections get a higher cap than `text_led`.
@@ -753,9 +773,10 @@ Per section:
 
 ### 9. Progressive emission
 
-Sections are emitted as each finishes generation (not in a final batch), so the review UI
-fills in top-to-bottom. When the last section is ready, the job moves to `review_ready` and a
-`done` event is sent.
+Sections are *started* in `order_index` order with bounded concurrency, so they may *complete*
+out of order; each is emitted the moment it finishes (not in a final batch). The UI renders
+sections sorted by `order_index`, so an earlier slot may fill in after a later one. When the
+last section is ready, the job moves to `review_ready` and a `done` event is sent.
 
 ---
 
@@ -811,8 +832,8 @@ fills in top-to-bottom. When the last section is ready, the job moves to `review
 - **Parallelize** `transcribing` and `indexing_visual` (both depend only on media).
 - **Two-tier frame sampling** so visual indexing scans coarsely first, refining only around
   changes.
-- **Bounded-concurrency per-section generation** so multiple sections draft at once while
-  still emitting progressively in order.
+- **Bounded-concurrency per-section generation** so multiple sections draft at once; each is
+  emitted as it completes (possibly out of order) and the UI sorts by `order_index`.
 - **Progressive review** so time-to-first-section, not total job time, is what the user feels.
 - **Capped proxy resolution** to cut download + decode time.
 - **Skip-if-present artifacts** so retries don't redo expensive stages.
@@ -856,13 +877,34 @@ shows it, always proceeds, and records actuals.
   - **Embeddings** — semantic-shift windows; cents.
   - **LLM refinement** — one call.
   - **Per-section note generation** — the dominant LLM cost; scales with depth × section count.
-  - **Storage / egress** — pennies, but accrues (see Data retention).
+  - **Storage / egress** — pennies, but accrues (see **Data retention**).
 - The estimate is returned in the `202` submit response and as a `cost.estimate` SSE event; the
   UI shows an "Est. ~$X" banner. An optional configurable **soft ceiling** only recolors the
   banner to a warning — it never blocks.
 - After the run, **actual** cost is computed from recorded usage (LLM token counts, audio
   minutes, OCR frame counts — captured as telemetry) and stored in `job_costs`; the UI shows
   actual-vs-estimate. Re-submit dedup (reusing proxy/transcript) is reflected in the estimate.
+
+---
+
+## Data retention
+
+Blob artifacts accrue across jobs, so each container has a retention policy (Azure Storage
+lifecycle-management rules; tunable in config):
+
+- **`frames`** (intermediate sampled frames, the bulkiest artifact) — short TTL (default 7 days
+  after the job reaches `review_ready`). They are only needed for screenshot selection and
+  manual capture re-runs; the proxy can regenerate any frame on demand afterward.
+- **`exports`** (ZIPs) — medium TTL (default 30 days); they are reproducible from current DB
+  state + Blob assets.
+- **`screenshots`** (selected assets referenced by notes) — retained while the job's `video`
+  is retained.
+- **`proxies`** — retained while any job referencing the video is active or recently reviewed
+  (default 30 days idle), since the proxy backs review scrubbing, manual capture, and re-submit
+  dedup. Expiring it forces a re-download on the next run.
+
+A `DELETE /api/v1/jobs/{job_id}` (and cascade) is **out of scope for v1**; lifecycle rules are
+the only cleanup mechanism. Manual job deletion is tracked in **Open questions**.
 
 ---
 
@@ -1041,3 +1083,5 @@ metadata.json
   baseline local index is validated.
 - Whether Google/Gemini multimodal is benchmarked in v1 or post-v1 (adapter boundary exists
   either way).
+- Whether to add manual job/video deletion (`DELETE /api/v1/jobs/{job_id}` + cascade) in v1, or
+  rely solely on Blob lifecycle rules for cleanup (see **Data retention**).
