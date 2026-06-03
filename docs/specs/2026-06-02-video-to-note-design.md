@@ -156,45 +156,122 @@ NOTIFY proves limiting, swap to Azure Web PubSub behind the same SSE-facing API.
 ## Pipeline stages (overview)
 
 The worker runs a fixed sequence of stages (the job state machine below). Each stage owns one
-shared package and writes timestamped artifacts that later stages consume. This section is the
-conceptual map; exact algorithms are in **Pipeline (detailed algorithms)** further down.
+shared package and writes timestamped artifacts that later stages consume. This section explains
+*what each stage does and how it works*; the precise algorithms (fusion scoring, snapping, token
+budgets) live in **Pipeline (detailed algorithms)** further down.
 
-| Stage | Package | What it does |
-| --- | --- | --- |
-| `resolving` | `vtn_ingest` | Resolve + validate the URL, fetch metadata, pick a source adapter; reuse artifacts if this video was processed before. |
-| `acquiring_media` | `vtn_ingest` | Download one capped-resolution **proxy** copy (yt-dlp/ffmpeg). The proxy is the single source of truth for all later frame work and review scrubbing. |
-| `transcribing` | `vtn_transcript` | Produce timestamped `transcript_spans` from captions (preferred) or Azure Speech ASR (fallback). |
-| `indexing_visual` | `vtn_visual` | Extract timestamped `visual_events` (slide/title/demo/keyframe…) from sampled frames. Runs **in parallel** with `transcribing`. |
-| `segmenting` | `vtn_segment` | Turn transcript + visual signals into section boundaries: deterministic fusion (recall) → single LLM refinement pass (precision + titles/gists/labels). |
-| `drafting` | `vtn_notes` | Per section: select + dedup screenshots, then generate the markdown note (one LLM call per section), emitted progressively. |
-| `review_ready` | — | All sections drafted; awaiting human review. |
-| `exported` | `vtn_export` | Assemble the ZIP (markdown + images + metadata). |
+### `resolving` (`vtn_ingest`)
 
-### A note on the word "indexing"
+**What** — Turn a submitted URL into a validated, canonical source we know how to fetch.
 
-`indexing_visual` (and "transcript indexing") do **not** build a searchable / vector index, and
-there is no semantic-search feature in v1. Both are **signal-extraction passes** that emit
-timestamped rows feeding `segmenting`. In particular, the transcript embeddings exist only so
-the `SemanticShiftDetector` can spot a cosine-similarity drop between adjacent windows (a
-boundary signal) — not to answer queries.
+**How** — A registry of `SourceResolver` adapters (`YouTubeResolver`, `MicrosoftEventResolver`
+for Build/Ignite session pages, `GenericResolver` fallback) each answer `can_handle(url)`; the
+first match runs `resolve(url)` to produce the canonical URL, source type, title, duration, and
+a media locator. The stage validates the video is public and reachable (else `unsupported_url` /
+`video_unavailable`). **Re-submit dedup**: if this canonical URL was already processed and its
+proxy + transcript still exist, the expensive download/transcribe stages are skipped and only a
+new `job` is created.
 
-### Transcript signals vs. visual signals
+### `acquiring_media` (`vtn_ingest`)
 
-The two pre-segmentation stages produce different kinds of timestamped signal on the **same
-clock** (both derive from the one downloaded proxy):
+**What** — Get exactly one local copy of the video that everything else reads from.
+
+**How** — Download a single **proxy** via yt-dlp (or the source's media URL) at a capped
+resolution (default 720p) to bound storage/egress while keeping screenshots legible, and store
+it at `videos.proxy_blob_path`. The proxy is the **single source of truth**: automated frame
+sampling, review scrubbing, and manual frame capture all read the same pixels, which is what
+keeps transcript timestamps and frame timestamps on one clock. Skip-if-present makes this
+resumable.
+
+### `transcribing` (`vtn_transcript`)
+
+**What** — Produce a normalized, timestamped transcript on the video timeline.
+
+**How** — A priority chain of `TranscriptProvider`s, best-quality first: source captions →
+YouTube captions → Azure AI Speech ASR (from the proxy audio). The first that succeeds wins;
+output is normalized to `transcript_spans` (start/end seconds, text, speaker where available).
+The chosen `source` is recorded and surfaced in review — ASR is slower and lower quality, so
+falling back to it raises a non-blocking `warning` rather than silently downgrading. Runs **in
+parallel** with `indexing_visual` (both depend only on the proxy).
+
+### `indexing_visual` (`vtn_visual`)
+
+**What** — Extract a timeline of `visual_events` (slide changes, title/OCR changes, demos,
+keyframes) from the video frames.
+
+> **"Indexing" here is signal extraction, not a search index.** Neither this stage nor the
+> transcript stage builds a searchable / vector index, and there is no semantic-search feature in
+> v1. Both emit timestamped rows that feed `segmenting`. (The transcript embeddings used later
+> exist only so the `SemanticShiftDetector` can spot a cosine-similarity drop between adjacent
+> windows — a boundary signal, not a query index.)
+
+**How** — Two-tier ffmpeg sampling for latency: a coarse pass (~1 fps) finds change regions, then
+a fine pass samples densely **only** around those changes. Cheap detectors run over the sampled
+frames, each emitting a `visual_event`:
+
+- **Slide/scene change** — pixel difference / SSIM jump between consecutive frames.
+- **Title/OCR change** — OCR (Azure Vision / Document Intelligence) on candidate frames; the
+  extracted text is stored (`ocr_text`) and reused later as evidence + caption material.
+- **Keyframe candidate** — the settled, representative frame within a shot.
+- **Demo/visual-dense** — sustained high local change rate (typing, scrolling code, animation).
+- **Low-speech/high-visual-change** — visual motion in transcript-sparse windows (silent demo).
+
+A perceptual hash (`phash`) is computed per stored frame so the drafting stage can later drop
+near-duplicate screenshots. There is **no embedding or vector store** here — it is classic CV +
+targeted OCR. Note `vtn_visual` does **double duty**: its events are both boundary hints for
+`segmenting` *and* the candidate pool for screenshots in `drafting`. v1 deliberately does **no
+deep multimodal frame understanding** (no CLIP-style frame embeddings, no vision-LLM slide
+description); upgrading that (Azure AI Video Indexer, Gemini multimodal) is tracked in **Open
+questions**.
+
+**Transcript vs. visual signals**, on the same clock:
 
 | | Transcript (`vtn_transcript` + SemanticShift) | Visual (`vtn_visual`) |
 | --- | --- | --- |
 | Raw material | Caption / ASR text spans | Sampled video frames |
-| Technique | **Embeddings** → cosine drop between windows | **Pixel diff / SSIM + OCR**; no embeddings, no vector store |
-| Emits | `semantic_shift` / `speaker_change` / `time_gap` candidates | `visual_events`: `slide_change` / `title_change` / `demo_change` / `keyframe` / `low_speech_visual` |
-| Second job | — | Also the **candidate pool for screenshots** (drafting stage) |
+| Technique | **Embeddings** → cosine drop between windows | **Pixel diff / SSIM + OCR**; no embeddings |
+| Emits | `semantic_shift` / `speaker_change` / `time_gap` | `slide_change` / `title_change` / `demo_change` / `keyframe` / `low_speech_visual` |
+| Second job | — | Also the screenshot candidate pool |
 
-`vtn_visual` therefore does double duty: its events are both boundary hints *and* the source of
-the screenshots themselves. v1 deliberately does **no deep multimodal frame understanding** (no
-CLIP-style frame embeddings, no vision-LLM slide description) — it is intentionally cheap CV +
-targeted OCR, two-tier sampled to bound cost and latency. Upgrading this (Azure AI Video
-Indexer, Gemini multimodal) is tracked in **Open questions**.
+### `segmenting` (`vtn_segment`)
+
+**What** — Fuse transcript + visual signals into ordered section boundaries with titles, gists,
+and classifications.
+
+**How** — Every signal source implements one `BoundaryDetector` interface emitting
+`BoundaryCandidate`s, so adding a variation is one detector or one config weight — never a fusion
+edit. Deterministic fusion favors **recall** (cluster nearby candidates, score by configurable
+per-signal weights, keep above a threshold, snap boundaries to transcript-span starts / slide
+frames). A single **LLM refinement pass** then adds **precision + labeling**: it merges
+over-segmentation, drops spurious boundaries, and writes each section's title, one-line gist,
+and `text_led | visual_led | mixed` class. The titles + gists become the global outline that
+keeps notes from repeating content. (Algorithm specifics, robustness fallback, and token
+budgeting are in the detailed section.)
+
+### `drafting` (`vtn_notes`)
+
+**What** — For each section, choose its screenshots and write its markdown note, streaming each
+out as it finishes.
+
+**How** — Screenshot selection scores the section's `visual_events` by type × confidence, dedups
+via `phash` Hamming distance, and caps the count by depth and classification. Note generation is
+**one LLM call per section** (bounded concurrency) fed the section transcript, visual/OCR
+summary, selected screenshots, the depth/custom prompt, and the **continuity context** (global
+outline + concept ledger) so sections stay consistent and non-redundant. Each finished section
+writes `section_notes`, flips to `ready`, and publishes a `section.ready` event over SSE.
+
+### `review_ready`
+
+**What** — All sections drafted; the job is now awaiting human review. No package; it is the
+state the UI switches fully into edit mode on.
+
+### `exported` (`vtn_export`)
+
+**What** — Produce the downloadable artifact.
+
+**How** — Assemble a ZIP from current DB state + Blob assets: `note.md` with relative image
+paths, an `images/` folder, and a `metadata.json` capturing source URL, timestamps, depth, and
+transcript source for audit/re-import.
 
 ---
 
@@ -545,8 +622,8 @@ Output normalized to `transcript_spans` (timestamped, speaker where available). 
 
 ### 4. Visual-event indexing (`vtn_visual`)
 
-This is signal extraction, not a search index (see **Pipeline stages → A note on the word
-"indexing"**): no embeddings, no vector store — classic CV + OCR over sampled frames.
+This is signal extraction, not a search index (see **Pipeline stages → `indexing_visual`**): no
+embeddings, no vector store — classic CV + OCR over sampled frames.
 
 - Sample frames with ffmpeg. Two-tier sampling for latency: coarse pass (e.g. 1 fps) to find
   change regions, fine pass only around detected changes.
