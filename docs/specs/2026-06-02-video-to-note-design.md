@@ -195,15 +195,15 @@ sequenceDiagram
     rect rgb(234, 244, 255)
     Note over U,DB: PROGRESS PHASE — each worker stage writes rows + emits an SSE event
 
-    Note over W,DB: resolving (vtn_ingest)
+    Note over W,DB: stage resolving (vtn_ingest)
     W->>DB: canonical_url + claim/dedup video
     API-->>U: event stage(resolving) + cost.estimate
 
-    Note over W,DB: acquiring_media (vtn_ingest)
+    Note over W,DB: stage acquiring_media (vtn_ingest)
     W->>DB: proxy video to Blob
     API-->>U: event stage(acquiring_media)
 
-    Note over W,DB: analyzing (parallel fork) — transcribing + indexing_visual + extracting_style
+    Note over W,DB: stage analyzing (parallel fork) — transcribing + indexing_visual + extracting_style
     par transcribing (vtn_transcript)
         W->>DB: transcript_spans
     and indexing_visual (vtn_visual)
@@ -213,11 +213,11 @@ sequenceDiagram
     end
     API-->>U: event stage(transcribing/indexing) + style.resolved
 
-    Note over W,DB: segmenting (vtn_segment) — whole-video fusion + LLM refinement
+    Note over W,DB: stage segmenting (vtn_segment) — whole-video fusion + LLM refinement
     W->>DB: sections (boundaries, titles, gists)
     API-->>U: event stage(segmenting)
 
-    Note over W,DB: drafting (vtn_notes) — loops per section
+    Note over W,DB: stage drafting (vtn_notes) — loops per section
     loop each section (may finish out of order)
         W->>DB: section_notes + screenshots
         API-->>U: event section.ready
@@ -230,7 +230,7 @@ sequenceDiagram
     rect rgb(234, 255, 240)
     Note over U,DB: REVIEW PHASE — synchronous REST, worker NOT involved
 
-    Note over U,DB: review_ready (no worker, user edits)
+    Note over U,DB: status review_ready (not a stage) — user edits, no worker
     U->>API: PATCH /sections/{id} (edit note/title)
     U->>API: POST /sections/{id}/regenerate
     API->>DB: vtn_notes → new section_notes revision
@@ -239,7 +239,7 @@ sequenceDiagram
     U->>API: GET /videos/{id}/stream (scrub) + capture
     API->>DB: ffmpeg frame to Blob + screenshots row
 
-    Note over U,DB: exported (vtn_export)
+    Note over U,DB: status exported (not a stage) — export runs vtn_export
     U->>API: POST /jobs/{id}/export
     API->>DB: build ZIP to Blob
     API-->>U: download_url (status = exported)
