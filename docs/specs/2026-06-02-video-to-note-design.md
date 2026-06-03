@@ -421,15 +421,15 @@ emitted as a `stage` SSE event). A **step** is an algorithm sub-unit *inside* a 
 numbered items in **Pipeline (detailed algorithms)**. Some stages are a single step; some bundle
 several:
 
-| Stage | `jobs.stage` while it runs | Step(s) |
+| Stage | `jobs.stage` while it runs | Step(s) — see **Pipeline (detailed algorithms)** |
 | --- | --- | --- |
-| `resolving` | `resolving` | step 1 |
-| `acquiring_media` | `acquiring_media` | step 2 |
-| `transcribing` | `analyzing` † | step 3 |
-| `indexing_visual` | `analyzing` † | step 4 |
-| `extracting_style` | `analyzing` † | step 4b |
-| `segmenting` | `segmenting` | steps 5 + 6 (boundary signals → fusion/refinement) |
-| `drafting` | `drafting` | steps 7 + 8 + 9 (screenshot select → note gen → progressive emission) |
+| `resolving` | `resolving` | 1. URL resolution & ingestion |
+| `acquiring_media` | `acquiring_media` | 2. Media acquisition |
+| `transcribing` | `analyzing` † | 3. Transcript acquisition |
+| `indexing_visual` | `analyzing` † | 4. Visual-event indexing |
+| `extracting_style` | `analyzing` † | 4b. Style extraction |
+| `segmenting` | `segmenting` | 5. Boundary signals + 6. Fusion / LLM refinement |
+| `drafting` | `drafting` | 7. Screenshot selection + 8. Note generation + 9. Progressive emission |
 
 † The three concurrent stages share the `analyzing` `jobs.stage` value — a scalar column can't
 name a fork (see the Job state machine) — but each still emits its own `stage` SSE event.
