@@ -165,6 +165,102 @@ PostgreSQL `LISTEN/NOTIFY`. The API's SSE endpoint `LISTEN`s on a per-job channe
 new `job_events` rows. This avoids adding Redis for v1 while giving near-real-time push. (If
 NOTIFY proves limiting, swap to Azure Web PubSub behind the same SSE-facing API.)
 
+### Frontend ↔ pipeline data flow
+
+Two views of the same system. **Diagram 1** is the time-ordered conversation between the browser
+and the backend; **Diagram 2** is the worker's internal stage graph. The seam between them: in
+Diagram 2 the worker *writes rows*; in Diagram 1 those writes surface to the browser as SSE
+events. Progress flows **up** from the worker via SSE; review flows **across** via synchronous
+REST that never touches the worker.
+
+**Diagram 1 — frontend ↔ backend sequence (all stages):**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Browser
+    participant API
+    participant Bus as Service Bus
+    participant W as Worker
+    participant DB as Postgres + Blob
+
+    U->>API: POST /jobs (url, depth, examples?)
+    API->>DB: create job + placeholder video
+    API->>Bus: enqueue {job_id}
+    API-->>U: 202 {job_id, cost_estimate}
+
+    Note over U,DB: PROGRESS PHASE — one SSE stream, push only
+    U->>API: open SSE GET /jobs/{id}/events
+    API->>DB: LISTEN per-job channel
+    Bus->>W: deliver {job_id}
+    Note over W,API: every stage: write artifact + job_events row → NOTIFY → API relays the SSE event below
+
+    W->>W: resolving (vtn_ingest)
+    W->>DB: canonical_url, claim/dedup video
+    API-->>U: stage(resolving) + cost.estimate
+
+    W->>W: acquiring_media (vtn_ingest)
+    W->>DB: proxy video to Blob
+    API-->>U: stage(acquiring_media)
+
+    par transcribing (vtn_transcript)
+        W->>DB: transcript_spans (whole video)
+    and indexing_visual (vtn_visual)
+        W->>DB: visual_events + frames to Blob (whole video)
+    and extracting_style (vtn_style, only if examples)
+        W->>DB: style_profile
+    end
+    API-->>U: stage(transcribing/indexing) + style.resolved
+
+    W->>W: segmenting (vtn_segment) — whole-video fusion + LLM refinement
+    W->>DB: sections (boundaries, titles, gists)
+    API-->>U: stage(segmenting)
+
+    loop drafting (vtn_notes) — per section, may finish out of order
+        W->>W: select screenshots + generate note
+        W->>DB: section_notes + screenshots
+        API-->>U: section.ready (render, sort by order_index)
+    end
+
+    W->>DB: status = review_ready
+    API-->>U: done
+
+    Note over U,DB: REVIEW PHASE — same page, synchronous REST, worker NOT involved
+    U->>API: PATCH /sections/{id} (edit note/title)
+    U->>API: POST /sections/{id}/regenerate
+    API->>DB: vtn_notes new section_notes revision
+    U->>API: POST /sections/{id}/split or /merge (only after review_ready)
+    API->>DB: reindex sections in one transaction
+    U->>API: GET /videos/{id}/stream (Range, scrub)
+    U->>API: POST /sections/{id}/screenshots/capture
+    API->>DB: ffmpeg 1 frame from proxy to Blob + screenshots row
+    U->>API: POST /jobs/{id}/export
+    API->>DB: vtn_export builds ZIP to Blob
+    API-->>U: download_url (status = exported)
+```
+
+**Diagram 2 — worker pipeline internals (stage order, packages, artifacts):**
+
+```mermaid
+flowchart TD
+    Q([queued]) --> R["resolving — vtn_ingest<br/>writes: canonical_url, dedup"]
+    R --> A["acquiring_media — vtn_ingest<br/>writes: proxy video (Blob)"]
+    A --> T["transcribing — vtn_transcript<br/>writes: transcript_spans"]
+    A --> V["indexing_visual — vtn_visual<br/>writes: visual_events + frames"]
+    A --> E["extracting_style — vtn_style<br/>(only if examples)<br/>writes: style_profile"]
+    T --> S["segmenting — vtn_segment<br/>writes: sections (titles, gists)<br/>uses: style_profile.granularity"]
+    V --> S
+    E --> S
+    S --> D["drafting — vtn_notes<br/>writes: section_notes + screenshots<br/>emits one section.ready each"]
+    D --> RR([review_ready])
+    RR -. user clicks Export .-> X["exported — vtn_export<br/>writes: ZIP (Blob)"]
+```
+
+In Diagram 2, `acquiring_media` fans out to three parallel stages that **join** at `segmenting`
+(whole-video, not streaming — drafting starts only after all sections exist); `exported` hangs
+off `review_ready` by a **dashed** arrow because it is user-triggered in review, not part of the
+automatic run.
+
 ---
 
 ## Pipeline stages (overview)
