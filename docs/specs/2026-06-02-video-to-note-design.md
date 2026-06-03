@@ -501,6 +501,10 @@ Terminal/side states:
   canceled
 ```
 
+**Terminology.** A **stage** is a node of this Job state machine — the unit of work the worker
+runs, recorded in `jobs.stage`. This is the canonical meaning throughout the spec. The
+finer-grained numbered items in **Pipeline (detailed algorithms)** are **steps**, not stages.
+
 The diagram blends two columns for readability. `jobs.stage` tracks **pipeline progress**
 (`queued` → … → `drafting`); `jobs.status` holds the **lifecycle state** (`active`, then one of
 the terminal/await states `review_ready` / `exported` / `failed` / `canceled`). While the worker
@@ -817,10 +821,12 @@ a single regenerated section stays consistent with the rest.
 
 ## Pipeline (detailed algorithms)
 
-All stages live in `worker/stages` and call shared packages. The numbered steps below are finer-
-grained than the named state-machine stages: step 4b is the optional `extracting_style` stage,
-steps 5–6 together are the `segmenting` stage, and steps 7–9 together are the `drafting` stage.
-Internal "(stage N)" references point to this numbering.
+Each stage's runner lives in `worker/stages` and calls shared packages. The numbered **steps**
+below are finer-grained than the named state-machine **stages**: step 4b is the optional
+`extracting_style` stage, steps 5–6 together are the `segmenting` stage, and steps 7–9 together
+are the `drafting` stage (steps 1–4 map 1:1 to `resolving`/`acquiring_media`/`transcribing`/
+`indexing_visual`). Internal "(step N)" references point to this numbering; "stage" always means
+a Job-state-machine node.
 
 ### 1. URL resolution & ingestion (`vtn_ingest`)
 
@@ -972,7 +978,7 @@ Deterministic fusion for **recall**, LLM for **precision/labeling**:
    at an anchor timestamp it was given* (so it cannot fabricate a time), write a title and a
    one-line gist, and classify each as `text_led | visual_led | mixed`. It returns strict JSON
    keyed by input index so results map back to timestamps. The titles + gists form the **global
-   outline** that drives cross-section continuity at note-generation time (stage 8). This
+   outline** that drives cross-section continuity at note-generation time (step 8). This
    absorbs per-speech variation rules cannot.
    - **Granularity target**: the pass is also given `style_profile.granularity` and collapses the
      recall-favoring candidates to that level (coarse → merge aggressively into themes; fine →
