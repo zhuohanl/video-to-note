@@ -558,9 +558,12 @@ So `resolving` is one step, but `segmenting` is two steps and `drafting` is thre
 the orchestrator writes a `stage` row to `job_events`, which surfaces as the SSE `stage` event.
 Steps do **not** each update `jobs.stage`:
 
-- **Single-step stages** (`resolving`, `acquiring_media`, and each of `transcribing` /
-  `indexing_visual` / `extracting_style`) — finishing the step *is* finishing the stage, so it
-  looks 1:1.
+- **Sequential single-step stages** (`resolving`, `acquiring_media`) — `jobs.stage` takes the
+  stage's own name; step, stage, and column move together (1:1).
+- **The parallel fork** (`transcribing`, `indexing_visual`, `extracting_style`) — each is a single
+  step, but `jobs.stage` stays at the shared super-stage `analyzing` for all three. They emit
+  their own per-branch `stage` SSE events *without* moving the column (the orchestrator owns it —
+  see the parallel-fork note above).
 - **Multi-step stages** (`segmenting`, `drafting`) — the intermediate steps complete **silently**:
   step 5 finishing doesn't change `jobs.stage`; only the transition *into* `segmenting`, then
   *into* `drafting`, is recorded.
@@ -1119,8 +1122,8 @@ last section is ready, the job moves to `review_ready` and a `done` event is sen
 ### Progress → review (streaming)
 
 - On mount, open SSE to `/jobs/{id}/events` (with `Last-Event-ID` resume).
-- A stage indicator shows: resolving → acquiring → transcribing/indexing → segmenting →
-  drafting. On each `section.ready`, append/patch that section in local state and render it
+- A stage indicator shows: resolving → acquiring → analyzing (transcribe / index / style) →
+  segmenting → drafting (driven by `jobs.stage` + per-branch `stage` events). On each `section.ready`, append/patch that section in local state and render it
   immediately — the user can scroll and start editing markdown/titles/screenshots while later
   sections arrive. **Structural controls (Split, Merge-up, boundary drag) are disabled until the
   `done` event / `status='review_ready'`** and show a tooltip ("available once drafting
