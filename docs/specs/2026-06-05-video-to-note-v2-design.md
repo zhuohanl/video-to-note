@@ -218,7 +218,7 @@ sequenceDiagram
         W->>DB: clip summary + scene
         API-->>U: clip.ready → summary lane fills
     end
-    W->>DB: assemble note (v1) ; status=review_ready
+    W->>DB: assemble note (v1), status=review_ready
     API-->>U: done → Edit tools unlock
     end
 
