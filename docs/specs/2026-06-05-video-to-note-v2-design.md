@@ -584,8 +584,10 @@ CREATE UNIQUE INDEX uq_videos_canonical ON videos(canonical_url) WHERE canonical
 CREATE TABLE jobs (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   video_id      uuid NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-  stage         text NOT NULL DEFAULT 'queued',  -- 'queued'|'resolving'|'acquiring_media'|'analyzing'|'segmenting'|'drafting'
-  status        text NOT NULL DEFAULT 'active',  -- 'active' | 'failed' | 'review_ready' | 'exported' | 'canceled'
+  stage         text NOT NULL DEFAULT 'queued'
+                  CHECK (stage IN ('queued','resolving','acquiring_media','analyzing','segmenting','drafting')),
+  status        text NOT NULL DEFAULT 'active'
+                  CHECK (status IN ('active','failed','review_ready','exported','canceled')),
   error_code    text,
   error_message text,
   attempt       int  NOT NULL DEFAULT 0,
@@ -655,13 +657,13 @@ CREATE TABLE clips (
   summary_seed    text,                   -- one-line gist from segmenting; feeds the cross-clip outline
   summary         text,                   -- the generated prose (drafting); also the section prose source
   ai_summary      text,                   -- last AI version (for "Restore AI summary"); null until edited
-  classification  text,                   -- 'text_led' | 'visual_led' | 'mixed'
+  classification  text CHECK (classification IN ('text_led','visual_led','mixed')),
   confidence      real,
-  status          text NOT NULL DEFAULT 'pending', -- 'pending' (segmented) | 'ready' (drafted)
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','ready')), -- 'pending' (segmented) | 'ready' (drafted)
   scene_at_sec    numeric(10,3),          -- timestamp of the chosen screenshot frame
   scene_blob_path text,                   -- materialized frame
-  scene_caption   text,
-  scene_source    text NOT NULL DEFAULT 'auto',  -- 'auto' | 'manual'
+  scene_caption   text,                   -- authoritative owner of the editable caption; assembled into notes.markdown, never edited there
+  scene_source    text NOT NULL DEFAULT 'auto' CHECK (scene_source IN ('auto','manual')),
   needs_regen     boolean NOT NULL DEFAULT false, -- set when boundaries change (the "flagged" state)
   updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (job_id, order_index)
@@ -675,7 +677,11 @@ CREATE TABLE notes (
   include_transcript boolean NOT NULL DEFAULT false, -- render/export flag only; transcript composited from transcript_spans, not stored here
   is_polished        boolean NOT NULL DEFAULT false, -- user hand-edited prose since last assemble/rebuild
   clips_dirty        boolean NOT NULL DEFAULT false, -- clips changed since note last built/kept (drift)
-  built_from_version int,                  -- note_versions.seq the note was last assembled from
+  built_from_version int,                  -- advisory provenance only (nullable): note_versions.seq the
+                                           -- current note was last assembled/rebuilt/restored from. Set by
+                                           -- initial assembly, rebuild, and restore; NOT a concurrency guard
+                                           -- (that is the note ETag) and not read by any gating logic — it
+                                           -- exists for history display ("built from v{n}") and debugging.
   updated_at         timestamptz NOT NULL DEFAULT now()
 );
 
@@ -685,10 +691,10 @@ CREATE TABLE note_versions (
   job_id          uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   seq             int  NOT NULL,           -- the v1, v2, v3… counter (per job)
   label           text NOT NULL,
-  kind            text NOT NULL,           -- 'initial'|'auto_edit'|'auto_pre_change'|'auto_rebuild'|'manual'|'restore'
+  kind            text NOT NULL CHECK (kind IN ('initial','auto_edit','auto_pre_change','auto_rebuild','manual','restore')),
   is_baseline     boolean NOT NULL DEFAULT false,  -- true only for seq=1; immutable, never pruned
   note_markdown   text NOT NULL,
-  note_settings   jsonb NOT NULL DEFAULT '{}',  -- {include_transcript, is_polished, ...} restored verbatim
+  note_settings   jsonb NOT NULL DEFAULT '{}',  -- {include_transcript, is_polished} restored verbatim; excludes clips_dirty (a note↔clips relationship, recomputed to false on restore)
   clips_snapshot  jsonb NOT NULL,          -- full clip structure at snapshot time
   created_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (job_id, seq)
@@ -988,7 +994,8 @@ user attempts a clip change, a heads-up modal appears (see reconciliation).
 ### Review (document editor + version history)
 
 The assembled note rendered as an editable document: per section a heading + time range, the
-scene figure with an editable caption, the editable prose, and — when the **"Include transcript"**
+scene figure with an editable caption (see [Caption editing](#caption-editing-is-a-clip-mutation)
+— the caption is owned by the clip, not by `notes.markdown`), the editable prose, and — when the **"Include transcript"**
 toggle is on — a **read-only** transcript blockquote projected from the clip's `transcript_spans`
 (virtual; not part of the editable markdown, see
 [Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection)).
@@ -1043,6 +1050,60 @@ The two UI warnings are pure functions of the flags:
   `is_polished = true`.
 - Review rebuild banner ⇔ `clips_dirty = true`.
 
+### Post-split / post-merge clip values (before regeneration)
+
+Split and merge change boundaries and set `needs_regen=true`, but the clip still needs concrete
+field values so the auto-sync re-assembly (and export) always produces valid Markdown **without
+waiting for regeneration**. The values are derived **deterministically** from the source clip(s) —
+no LLM call — and are treated as placeholders that **Regenerate** later replaces:
+
+| Field | Split → first half | Split → second half | Merge → combined clip |
+| --- | --- | --- | --- |
+| `title` | inherits source `title` | source `title` + " (cont.)" | first source clip's `title` |
+| `summary` | inherits source `summary` (verbatim) | inherits source `summary` (verbatim) | source `summary`s concatenated in order, blank-line separated |
+| `ai_summary` | inherits source `ai_summary` | inherits source `ai_summary` | first source clip's `ai_summary` (non-null) |
+| `summary_seed` | inherits source `summary_seed` | inherits source `summary_seed` | first source clip's `summary_seed` |
+| `scene_*` (`scene_at_sec`, `scene_blob_path`, `scene_caption`, `scene_source`) | inherited **iff** source `scene_at_sec` falls inside the first half's range; else frame-on-demand at the half's `start_sec` with `scene_source='auto'`, `scene_caption=null` | frame-on-demand at the second half's `start_sec`, `scene_source='auto'`, `scene_caption=null` | first source clip's `scene_*` (kept verbatim, including any manual caption) |
+| `classification`, `confidence` | inherited from source | inherited from source | first source clip's values |
+| `needs_regen` | `true` | `true` | `true` |
+| `status` | `ready` (it still has displayable prose) | `ready` | `ready` |
+
+**Assembled Markdown while `needs_regen=true`.** The auto-sync assembler (step-9) emits the section
+exactly as for any other clip, using these placeholder values. The "⚠ Needs regeneration" marker is
+**a render/export-time projection from `clips.needs_regen`**, exactly analogous to the
+[transcript projection](#transcript-inclusion-is-a-render-time-projection): it is **never written
+into `notes.markdown`**. There is exactly one source of truth — the `clips.needs_regen` flag — and
+exactly one materialization rule:
+
+| Surface | Marker behavior |
+| --- | --- |
+| `notes.markdown` (stored) | never contains the marker; holds only heading + scene + placeholder prose |
+| Review render | composites the marker before the heading of every section whose clip has `needs_regen=true`, read from the current clips |
+| Version snapshots (`note_markdown` + `clips_snapshot`) | store `notes.markdown` (no marker) plus each clip's `needs_regen` in `clips_snapshot`; the marker re-projects on restore from the snapshot's clips |
+| Exported `note.md` | composites the marker at serialize time from current persisted clips (see [Export format](#export-format)) — it is **not** read from `notes.markdown` |
+
+Export is never blocked by `needs_regen` (consistent with **warn, never block**): `note.md`
+serializes the placeholder prose and the serializer projects the marker for any clip still flagged.
+**Regenerate** clears `needs_regen`, replaces `summary`/`ai_summary` with the fitted AI prose, and
+(when `is_polished=false`) re-runs auto-sync; because the marker is a projection of `needs_regen`, it
+disappears from Review and export the moment the flag clears, with no rewrite of `notes.markdown`.
+
+### Caption editing is a clip mutation
+
+The editable scene caption shown in Review has **exactly one owner: `clips.scene_caption`**. It is
+*not* a free-text region of `notes.markdown`; the assembler reads `clips.scene_caption` into the
+section's scene figure, and the user edits it via the **clip**, not the document. This keeps caption
+edits durable across rebuild and restore (the caption lives in the clip and its snapshot), with no
+risk of losing a user caption when the note is re-assembled.
+
+| Concern | Behavior |
+| --- | --- |
+| Endpoint | `PATCH /clips/{id} {scene_caption?}` — the same clip-patch endpoint used for `title`/`summary`, guarded by the single-clip ETag. There is **no** caption field on any `/note` endpoint. |
+| Flags | A caption edit is a clip mutation: when `is_polished=false` it triggers the [auto-sync rule](#clip-mutations-when-the-note-is-not-polished-is_polishedfalse) (re-assemble `notes.markdown` in the same transaction, both flags stay false); when `is_polished=true` it follows the `needs_ack` path (409 → `?ack=1` → freeze `auto_pre_change`, set `clips_dirty`), exactly like a title or summary edit. |
+| `scene_source` | Editing only the caption does **not** change `scene_source`; it stays whatever the frame selection set it to. |
+| Versioning | Captured in `clips_snapshot` (the caption is a clip field), so versions and restore reproduce it verbatim. |
+| Rebuild | Rebuild re-reads `clips.scene_caption`, so an edited caption survives rebuild unchanged (rebuild only discards hand-edited **prose**, never clip fields). |
+
 ### Transcript inclusion is a render-time projection
 
 Transcript blockquotes are **not part of `notes.markdown`** and are **not affected by polish,
@@ -1094,11 +1155,15 @@ History is **durable and per-job**. Each version is a full project snapshot (`no
 
 **Restore** applies a snapshot's note **and** clips together (replacing current clips with
 `clips_snapshot` after freezing the current state as a `restore` version first, so restore is
-non-destructive and itself undoable). **Flags after restore are restored, not recomputed**:
-`notes.markdown` ← `note_markdown`, `notes.is_polished` ← `note_settings.is_polished`,
-`notes.include_transcript` ← `note_settings.include_transcript`, and **`clips_dirty` is always set
-to `false`** — the restored note and restored clips are by construction the consistent pair to
-resume from, so there is no pending drift to acknowledge. (Restoring a snapshot that was polished
+non-destructive and itself undoable). `note_settings` carries **only the persisted-state flags**
+(`is_polished`, `include_transcript`) and **deliberately excludes `clips_dirty`**, because
+`clips_dirty` is a *relationship* between a note and a set of clips, not a property of the note
+itself — it cannot be snapshotted meaningfully and is always recomputed on restore. Concretely,
+after restore: `notes.markdown` ← `note_markdown`, `notes.is_polished` ←
+`note_settings.is_polished`, `notes.include_transcript` ← `note_settings.include_transcript` (the two
+note flags are restored verbatim), and **`clips_dirty` is always set to `false`** — the restored note
+and restored clips are by construction the consistent pair to resume from, so there is no pending
+drift to acknowledge. (Restoring a snapshot that was polished
 and intentionally drifted reproduces `is_polished=true` with `clips_dirty=false`, exactly the
 post-"Keep my note" state it was saved in.) Because history is durable, a page reload changes
 nothing.
@@ -1124,14 +1189,31 @@ All endpoints require the session cookie. JSON unless noted. Two distinct guards
 and rejects stale writes with `412 Precondition Failed`; **state-gating** (e.g. editing clips
 before `review_ready`, or a clip change that needs acknowledgement) returns `409 Conflict`.
 
-Two ETag scopes apply to clips. A **single-clip ETag** (from that clip's `updated_at`) guards
-`PATCH /clips/{id}` and `POST /clips/{id}/scene`. Operations that reorder the whole collection —
+Three ETag scopes apply. A **single-clip ETag** (from that clip's `updated_at`) guards
+`PATCH /clips/{id}`, `POST /clips/{id}/scene`, and `POST /clips/{id}/regenerate` — every mutation
+scoped to a single clip that does not change `order_index`. (Regenerate rewrites that clip's
+`summary`, `ai_summary`, and `needs_regen`, so it is guarded exactly like a single-clip summary
+edit: `If-Match` carries the clip's ETag and a mismatch returns `412 stale_write`, so a stale
+regenerate can never overwrite a newer clip edit.) Operations that reorder the whole collection —
 `POST /clips/{id}/split` and `POST /clips/merge` — instead guard on a **clips-collection ETag**
 for the job, derived as `max(clips.updated_at)` over the job's clips (a monotonic collection
 fingerprint). The client sends it as `If-Match`; a mismatch (any clip added, removed, or
 re-indexed since the client last read) returns `412`, preventing two structural edits from
 interleaving an `order_index` renumber. `GET /jobs/{id}/clips` returns this collection ETag
 alongside per-clip ETags.
+
+A third **note ETag** (from `notes.updated_at`) guards mutations of the materialized note. It is
+returned by `GET /jobs/{id}/note` and required as `If-Match` on `PUT /jobs/{id}/note` (autosave),
+`PATCH /jobs/{id}/note` (transcript toggle), `POST /jobs/{id}/note/rebuild`, and
+`POST /jobs/{id}/note/keep`; a mismatch returns `412 stale_write`, so a debounced autosave can never
+clobber a concurrent rebuild/keep/toggle (and vice-versa). **Restore replaces both the note and the
+clips**, so `POST /jobs/{id}/versions/{seq}/restore` requires **both** the note ETag **and** the
+clips-collection ETag as `If-Match` (sent as a comma-separated list); either being stale returns
+`412`. **Manual version save** (`POST /jobs/{id}/versions`) snapshots both the note and the clips,
+so it requires the **same both-ETag** `If-Match` as restore — guarding against a stale tab saving a
+snapshot that no longer reflects the project state. Auto-sync re-assembly performed inside a clip
+write advances `notes.updated_at` as part of that same transaction, so the client's next note read
+returns a fresh note ETag.
 
 **Session & job creation**
 - `POST /login` `{username, password}` → sets `httpOnly` signed cookie.
@@ -1149,42 +1231,61 @@ alongside per-clip ETags.
 
 **Clips** (mutations enabled once `review_ready` is reached, i.e. `status ∈ {review_ready, exported}`; an `active` job returns `job_not_review_ready`)
 - `GET /jobs/{id}/clips` → ordered clips with summaries, scenes, flags.
-- `PATCH /clips/{id}` `{title?, summary?}` → edit (sets `ai_summary` on first summary edit;
-  clearing restores from `ai_summary`).
+- `PATCH /clips/{id}` `{title?, summary?, scene_caption?}` → edit (sets `ai_summary` on first
+  summary edit; clearing restores from `ai_summary`). `scene_caption` is the **sole** way to edit a
+  caption — `clips.scene_caption` is its authoritative owner (see
+  [Caption editing](#caption-editing-is-a-clip-mutation)); no `/note` endpoint accepts a caption.
 - `POST /clips/{id}/split` `{at_sec}` → split at a transcript-anchored timestamp; both halves
   `needs_regen=true`. Guarded by the **clips-collection ETag** (`If-Match`), since it renumbers
   `order_index`.
 - `POST /clips/merge` `{clip_ids:[…]}` → merge consecutive clips; result `needs_regen=true`.
   Guarded by the **clips-collection ETag** (`If-Match`).
-- `POST /clips/{id}/regenerate` → regenerate the clip summary to fit; clears `needs_regen`.
-- Structural/scene/summary writes that mutate clips, when `notes.is_polished`, return `409
-  needs_ack`; the client re-sends with `?ack=1` to proceed, which freezes the `auto_pre_change`
-  version and sets `clips_dirty`. When `notes.is_polished=false` the same writes succeed with no
-  ack and **synchronously re-assemble `notes.markdown` from the current clips in the same
-  transaction** (the [auto-sync rule](#clip-mutations-when-the-note-is-not-polished-is_polishedfalse));
+- `POST /clips/{id}/regenerate` → regenerate the clip summary to fit; rewrites `summary` +
+  `ai_summary` and clears `needs_regen`. Guarded by the **single-clip ETag** (`If-Match` carries
+  that clip's `updated_at`); a stale mismatch returns `412 stale_write`, so a regenerate computed
+  against an older clip state can never overwrite a newer clip edit. Because it mutates clip
+  content, it follows the same polished/unpolished flow as the other clip writes below: when
+  `notes.is_polished` it takes the `needs_ack` path (`409 needs_ack` → `?ack=1` → freeze
+  `auto_pre_change`, set `clips_dirty`), and when `notes.is_polished=false` it triggers the
+  auto-sync re-assembly in the same transaction.
+- Structural/scene/summary/regenerate writes that mutate clips, when `notes.is_polished`, return
+  `409 needs_ack`; the client re-sends with `?ack=1` to proceed, which freezes the
+  `auto_pre_change` version and sets `clips_dirty`. When `notes.is_polished=false` the same writes
+  succeed with no ack and **synchronously re-assemble `notes.markdown` from the current clips in
+  the same transaction** (the [auto-sync rule](#clip-mutations-when-the-note-is-not-polished-is_polishedfalse));
   both flags stay false, so export never serves note markdown that lags the clips.
 
 > Split and merge renumber `order_index` for the job in a single transaction, preserving the
 > `UNIQUE (job_id, order_index)` constraint.
 
-**Note**
-- `GET /jobs/{id}/note` → `{markdown, include_transcript, is_polished, clips_dirty}`.
+**Note** (all mutations require the **note ETag** as `If-Match`; `GET` returns it)
+- `GET /jobs/{id}/note` → `{markdown, include_transcript, is_polished, clips_dirty}`; returns the
+  note ETag (`notes.updated_at`) for use as `If-Match` on the writes below.
 - `PUT /jobs/{id}/note` `{markdown}` → save prose (debounced autosave); sets `is_polished`;
-  coalesces an `auto_edit` version.
+  coalesces an `auto_edit` version. Requires the note ETag; stale → `412 stale_write`.
 - `PATCH /jobs/{id}/note` `{include_transcript}` → toggle transcript inclusion. **Persisted change
   is the boolean only**; `notes.markdown` is *not* rewritten and `is_polished` is *not* affected.
-  Review and export composite transcript blockquotes from `transcript_spans` at render/serialize
-  time when the flag is true (see
+  Requires the note ETag (it still advances `notes.updated_at`). Review and export composite
+  transcript blockquotes from `transcript_spans` at render/serialize time when the flag is true (see
   [Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection)).
 - `POST /jobs/{id}/note/rebuild` → re-assemble from current clips; clear flags; freeze
-  `auto_rebuild`.
-- `POST /jobs/{id}/note/keep` → clear `clips_dirty` only.
+  `auto_rebuild`. Requires the note ETag; stale → `412 stale_write`.
+- `POST /jobs/{id}/note/keep` → clear `clips_dirty` only. Requires the note ETag; stale →
+  `412 stale_write`.
 
 **Versions**
 - `GET /jobs/{id}/versions` → ordered list (`seq`, label, kind, created_at, baseline?).
-- `POST /jobs/{id}/versions` `{label?}` → manual "Save version".
+- `POST /jobs/{id}/versions` `{label?}` → manual "Save version". A version snapshots **both** the
+  current note and the current clips, so — symmetric with restore — it requires **both** the note
+  ETag **and** the clips-collection ETag as `If-Match` (comma-separated); either being stale returns
+  `412 stale_write`. This prevents a stale client tab from minting a misleading manual snapshot after
+  an autosave, rebuild, restore, or clip mutation has already advanced the project state. On match,
+  the snapshot saved is the current `notes.markdown` + `note_settings` + `clips_snapshot` (kind
+  `manual`); the call does not mutate the note or clips and therefore does not advance either ETag.
 - `POST /jobs/{id}/versions/{seq}/restore` → apply that snapshot's note + clips; freeze a
-  `restore` version.
+  `restore` version. Because it replaces **both** note and clips, it requires **both** the note ETag
+  **and** the clips-collection ETag as `If-Match` (comma-separated); either stale → `412
+  stale_write`.
 
 **Export**
 - `POST /jobs/{id}/export` → assemble ZIP from current state; returns `download_url`. Repeatable;
@@ -1241,10 +1342,17 @@ its own incremental cost.
 ## Export format
 
 A ZIP assembled from current persisted state, repeatable at any time:
-- **`note.md`** — `notes.markdown` with relative image paths. When `include_transcript=true` the
-  serializer composites a transcript blockquote (built from each clip's `transcript_spans`) under
-  the matching section **at export time**; the blockquotes are not read from `notes.markdown` (it
-  never stores them). When false, `note.md` is `notes.markdown` verbatim (image paths rewritten).
+- **`note.md`** — `notes.markdown` with relative image paths, with two **render/export-time
+  projections composited from the current persisted clips** (never read from `notes.markdown`, which
+  stores neither):
+  - **Regeneration marker** — for every section whose clip has `needs_regen=true`, the serializer
+    prefixes the section heading with the "⚠ Needs regeneration" marker (see
+    [Assembled Markdown while `needs_regen=true`](#post-split--post-merge-clip-values-before-regeneration)).
+  - **Transcript blockquote** — when `include_transcript=true`, the serializer composites a
+    blockquote (built from each clip's `transcript_spans`) under the matching section.
+
+  When no clip is flagged and `include_transcript=false`, both projections are empty and `note.md`
+  equals `notes.markdown` verbatim (image paths rewritten).
 - **`images/`** — one scene per clip, named by order (`0001-intro.png`, `0002-arch.png`, …).
 - **`metadata.json`** — source URL, depth / resolved profile, transcript source, and per-clip +
   per-scene timestamps for audit and re-import.
