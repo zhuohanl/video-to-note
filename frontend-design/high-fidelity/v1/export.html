@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Export · Video-to-Note</title>
+<link rel="icon" href="assets/favicon.svg" />
+<link rel="stylesheet" href="colors_and_type.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html" aria-label="Video-to-Note home">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M14 6 H29 L37 14 V39 A3 3 0 0 1 34 42 H14 A3 3 0 0 1 11 39 V9 A3 3 0 0 1 14 6 Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"></path>
+      <path d="M29 6 V14 H37" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+      <path d="M21 19 L21 31 L31 25 Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+    </svg>
+    <span class="word">Video<span class="sep">-to-</span>Note</span>
+  </a>
+  <nav class="steps">
+    <a class="step done" href="submit.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Submit</a>
+    <span class="sep"></span>
+    <a class="step done" href="progress.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Progress</a>
+    <span class="sep"></span>
+    <a class="step done" href="review.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Review</a>
+    <span class="sep"></span>
+    <a class="step active" href="export.html"><span class="n">4</span>Export</a>
+  </nav>
+  <div class="topbar-right">
+    <a class="help-link" href="review.html"><i data-lucide="arrow-left"></i>Back to review</a>
+  </div>
+</header>
+
+<main class="page narrow">
+  <div class="page-head" style="text-align:center;margin-bottom:24px;">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--success-bg);color:var(--success-fg);display:grid;place-items:center;margin:0 auto 16px;">
+      <i data-lucide="circle-check" style="width:28px;height:28px;"></i>
+    </div>
+    <h1>Notes ready to export</h1>
+    <p style="margin:8px auto 0;">A ZIP is assembled from the current state — a Markdown file with relative image paths, the screenshots, and a metadata file.</p>
+  </div>
+
+  <div class="card pad" style="margin-bottom:18px;">
+    <div class="row between wrap" style="gap:12px;margin-bottom:16px;">
+      <div class="row" style="gap:14px;">
+        <div style="width:40px;height:40px;border-radius:var(--r-md);background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none;"><i data-lucide="file-text" style="width:20px;height:20px;"></i></div>
+        <div>
+          <div style="font-weight:600;font-size:16px;">deploying-ai-apps-to-azure.zip</div>
+          <div class="t-small faint">4 sections · 9 screenshots · ~2.4 MB</div>
+        </div>
+      </div>
+      <span class="chip ok"><i data-lucide="circle-check"></i>Reviewed</span>
+    </div>
+
+    <div class="eyebrow" style="margin-bottom:9px;">ZIP contents</div>
+    <div class="well mono" style="font-size:13px;line-height:1.9;padding:13px 15px;color:var(--ink);">
+      <div class="row" style="gap:8px;"><i data-lucide="file-text" style="width:14px;height:14px;color:var(--ink-3);"></i>note.md</div>
+      <div class="row" style="gap:8px;"><i data-lucide="folder" style="width:14px;height:14px;color:var(--ink-3);"></i>images/<span class="faint" style="font-size:11.5px;">0001-intro.png · 0002-arch.png · 0003-demo.png · …</span></div>
+      <div class="row" style="gap:8px;"><i data-lucide="file-json" style="width:14px;height:14px;color:var(--ink-3);"></i>metadata.json</div>
+    </div>
+
+    <button class="btn primary lg block" id="exportBtn" style="margin-top:18px;"><i data-lucide="download"></i>Export &amp; download ZIP</button>
+    <div class="row" style="justify-content:center;margin-top:10px;">
+      <a class="btn ghost sm" href="submit.html"><i data-lucide="plus"></i>Start a new note</a>
+    </div>
+  </div>
+
+  <div class="col" style="gap:10px;">
+    <div class="banner ok">
+      <i data-lucide="refresh-cw"></i>
+      <span>Reproducible — re-assembled any time from the current saved state.</span>
+    </div>
+    <p class="t-small faint" style="margin:0;display:flex;gap:7px;align-items:flex-start;line-height:1.5;">
+      <i data-lucide="info" style="width:15px;height:15px;flex:none;margin-top:1px;"></i>
+      <span><strong style="color:var(--ink-2);">metadata.json</strong> records the source URL, depth, transcript source, and per-section and per-screenshot timestamps for audit and re-import.</span>
+    </p>
+  </div>
+</main>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  lucide.createIcons();
+  const btn = document.getElementById('exportBtn');
+  btn.addEventListener('click', () => {
+    btn.innerHTML = '<i data-lucide="check"></i> Downloaded';
+    btn.classList.remove('primary'); btn.classList.add('secondary');
+    lucide.createIcons();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review · Video-to-Note</title>
+<link rel="icon" href="assets/favicon.svg" />
+<link rel="stylesheet" href="colors_and_type.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html" aria-label="Video-to-Note home">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M14 6 H29 L37 14 V39 A3 3 0 0 1 34 42 H14 A3 3 0 0 1 11 39 V9 A3 3 0 0 1 14 6 Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"></path>
+      <path d="M29 6 V14 H37" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+      <path d="M21 19 L21 31 L31 25 Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+    </svg>
+    <span class="word">Video<span class="sep">-to-</span>Note</span>
+  </a>
+  <nav class="steps">
+    <a class="step done" href="submit.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Submit</a>
+    <span class="sep"></span>
+    <a class="step done" href="progress.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Progress</a>
+    <span class="sep"></span>
+    <a class="step active" href="review.html"><span class="n">3</span>Review</a>
+    <span class="sep"></span>
+    <a class="step" href="export.html"><span class="n">4</span>Export</a>
+  </nav>
+  <div class="topbar-right">
+    <span class="chip outline mono"><i data-lucide="video" style="color:var(--error-fg);"></i>youtube</span>
+    <span class="chip ok" id="saveStatus"><i data-lucide="check"></i>Saved</span>
+  </div>
+</header>
+
+<main class="page" style="max-width:1180px;">
+  <div class="page-head" style="margin-bottom:18px;">
+    <div class="row between wrap" style="gap:16px;align-items:flex-end;">
+      <div>
+        <div class="eyebrow" style="margin-bottom:8px;">Review &amp; edit</div>
+        <h1>Deploying AI apps to Azure</h1>
+        <p style="margin-top:6px;">Microsoft Build 2024 · captions</p>
+      </div>
+      <div class="detail-ctl">
+        <span class="lbl">Detail</span>
+        <button class="detail-chip" id="detailBtn" aria-expanded="false"><i data-lucide="sliders-horizontal"></i><span class="cur" id="detailCur">Balanced</span><i data-lucide="chevron-down" class="chev"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="rv3">
+    <!-- ============ DOCUMENT ============ -->
+    <article class="rv3-doc" id="doc">
+      <div class="rv3-editor">
+        <div class="md-toolbar" id="mdToolbar">
+          <select class="md-style" id="mdStyle" title="Text style">
+            <option value="p">Body</option>
+            <option value="h3">Heading</option>
+            <option value="h4">Subheading</option>
+          </select>
+          <span class="md-tb-sep"></span>
+          <button class="md-tb-btn" data-cmd="bold" title="Bold"><i data-lucide="bold"></i></button>
+          <button class="md-tb-btn" data-cmd="italic" title="Italic"><i data-lucide="italic"></i></button>
+          <button class="md-tb-btn" data-cmd="code" title="Inline code"><i data-lucide="code"></i></button>
+          <span class="md-tb-sep"></span>
+          <button class="md-tb-btn" data-cmd="insertUnorderedList" title="Bulleted list"><i data-lucide="list"></i></button>
+          <button class="md-tb-btn" data-cmd="insertOrderedList" title="Numbered list"><i data-lucide="list-ordered"></i></button>
+          <button class="md-tb-btn" data-cmd="quote" title="Quote"><i data-lucide="quote"></i></button>
+          <span class="md-tb-sep"></span>
+          <button class="md-tb-btn" data-cmd="createLink" title="Link"><i data-lucide="link"></i></button>
+          <button class="md-tb-btn" data-cmd="divider" title="Divider"><i data-lucide="minus"></i></button>
+        </div>
+        <div class="rv3-editor-body">
+          <div class="rv3-prose note-doc" id="noteDoc" contenteditable="true" spellcheck="false">
+
+            <h2 class="note-h" data-sec="1" data-title="Opening &amp; session goals">1. Opening &amp; session goals<span class="note-ts" contenteditable="false">0:00–4:12</span><span class="note-tools" contenteditable="false"><button class="icon-btn" data-regen title="Regenerate this section's text"><i data-lucide="refresh-cw"></i></button></span></h2>
+            <p>The speaker frames the session around shipping a working AI app to Azure by the end, and sets expectations for the live demo that follows.</p>
+            <div class="split-gap" contenteditable="false" title="Split into a new section here"><span class="tag"><i data-lucide="scissors"></i>Split section here</span></div>
+            <p>The aim is practical: leave with a deployable pattern rather than slides.</p>
+
+            <h2 class="note-h" data-sec="2" data-title="Architecture overview">2. Architecture overview<span class="note-ts" contenteditable="false">4:12–12:40</span><span class="note-tools" contenteditable="false"><button class="icon-btn" data-regen title="Regenerate this section's text"><i data-lucide="refresh-cw"></i></button></span></h2>
+            <p>The system is organized as a pipeline of small services, each behind a provider adapter so models stay swappable. Work is queued per stage and streamed to the client as it completes.</p>
+            <figure class="rv3-fig" contenteditable="false">
+              <div class="shot" style="background:linear-gradient(135deg,#243b66,#2E5AAC);">slide · architecture</div>
+              <div class="fig-tools"><button title="Recapture"><i data-lucide="refresh-cw"></i></button><button data-fig-remove title="Remove from note"><i data-lucide="trash-2"></i></button></div>
+              <figcaption><span class="mono faint">0:09:51</span><span class="cap" contenteditable="true" spellcheck="false">Architecture overview</span></figcaption>
+            </figure>
+            <div class="split-gap" contenteditable="false" title="Split into a new section here"><span class="tag"><i data-lucide="scissors"></i>Split section here</span></div>
+            <p>Adapters keep the orchestration layer free of vendor specifics, so a non-Azure service can be benchmarked and swapped without touching the pipeline.</p>
+
+            <h2 class="note-h" data-sec="3" data-title="Live demo: deploy worker">3. Live demo: deploy worker<span class="note-ts" contenteditable="false">12:40–24:05</span><span class="note-tools" contenteditable="false"><button class="icon-btn" data-regen title="Regenerate this section's text"><i data-lucide="refresh-cw"></i></button></span></h2>
+            <p>The presenter runs <code>azd up</code> to provision and deploy in one step. The container app spins up behind a managed identity — no secrets in the repo.</p>
+            <figure class="rv3-fig" contenteditable="false">
+              <div class="shot" style="background:#1b1b1b;color:#8fb98f;">demo · terminal</div>
+              <div class="fig-tools"><button title="Recapture"><i data-lucide="refresh-cw"></i></button><button data-fig-remove title="Remove from note"><i data-lucide="trash-2"></i></button></div>
+              <figcaption><span class="mono faint">0:12:48</span><span class="cap" contenteditable="true" spellcheck="false">azd up</span></figcaption>
+            </figure>
+            <p>Deployment finishes in about three minutes; the worker is reachable immediately and logs stream to the console.</p>
+
+            <h2 class="note-h" data-sec="4" data-title="Q&amp;A">4. Q&amp;A<span class="note-ts" contenteditable="false">24:05–31:20</span><span class="note-tools" contenteditable="false"><button class="icon-btn" data-regen title="Regenerate this section's text"><i data-lucide="refresh-cw"></i></button></span></h2>
+            <p>Audience questions cover cost controls, scaling the worker horizontally, and running the full stack locally for development.</p>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="export-bar" style="margin-top:24px;">
+        <span class="summary"><span class="ok-badge"><i data-lucide="check"></i></span>4 sections · 9 screenshots · reviewed</span>
+        <span class="row" style="gap:8px;">
+          <button class="btn ghost sm" id="versionsBtn"><i data-lucide="history"></i>Versions<span class="vcount mono" id="vCount">1</span></button>
+          <button class="btn secondary sm" id="saveDraft"><i data-lucide="save"></i>Save version</button>
+          <a class="btn primary sm" href="export.html">Proceed to export<i data-lucide="arrow-right"></i></a>
+        </span>
+      </div>
+    </article>
+
+    <!-- ============ DOCKED VIDEO ============ -->
+    <aside class="rv3-video">
+      <div class="frame">video proxy · 720p</div>
+      <div class="vbody">
+        <div class="scrub">
+          <div class="scrub-row">
+            <button class="btn secondary icon sm" aria-label="Play"><i data-lucide="play"></i></button>
+            <span class="mono" style="font-size:12px;">9:51 / 31:20</span>
+            <div class="scrub-track" id="scrubTrack">
+              <span class="scrub-fill" style="width:31%"></span>
+              <span class="scrub-mark" style="left:13%"></span>
+              <span class="scrub-mark" style="left:31%"></span>
+              <span class="scrub-mark" style="left:40%"></span>
+              <span class="scrub-mark" style="left:77%"></span>
+              <span class="scrub-head" id="scrubHead" style="left:31%"></span>
+            </div>
+          </div>
+        </div>
+        <button class="btn primary block" id="addShot"><i data-lucide="camera"></i>Add screenshot from video</button>
+        <div class="add-shot-help"><i data-lucide="info"></i><span>Scrub to a moment, then add it. It drops into the section you're reading — your text stays as is.</span></div>
+        <div class="target-line">Adding to → <strong id="targetSec">02 · Architecture overview</strong></div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<!-- floating popovers -->
+<div id="popLayer"></div>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="review.js"></script>
+</body>
+</html>

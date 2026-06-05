@@ -434,6 +434,15 @@ Because all clip mutation happens strictly after the worker finishes writing cli
 writes and user edits never overlap — there is no concurrent-edit lock and no boundary
 reindex race.
 
+**Gating is "the worker has finished", not "status equals `review_ready`".** The unlock predicate
+is *`review_ready` has been reached* — i.e. `status ∈ {review_ready, exported}`. Exporting does
+**not** freeze the project: `status='exported'` is a repeatable marker that an export was produced,
+not a lock. The user may keep editing clips and prose after an export; a subsequent export simply
+re-assembles the ZIP from the (now-edited) current state. Editing endpoints therefore accept both
+`review_ready` and `exported`, and only `active` (worker still running) returns
+`job_not_review_ready`. There is no transition that sends an `exported` job back to `active`; the
+worker never runs again for that job.
+
 ### Idempotency and resumability
 
 - Every stage writes its output to Blob/PostgreSQL with a deterministic key derived from
@@ -458,7 +467,9 @@ adapters (`YouTubeResolver`, `MicrosoftEventResolver`, `GenericResolver` fallbac
 type, title, duration, and media locator. The stage validates the video is public and reachable
 (else `unsupported_url` / `video_unavailable`). **Re-submit dedup**: if a video with this
 canonical URL already has a proxy + transcript, the worker re-points the job at it and the
-media/transcript stages skip-if-present.
+media/transcript stages skip-if-present. When two jobs for the same canonical URL race before the
+artifacts exist, a per-artifact video-level claim ensures exactly one worker populates each shared
+artifact (see [Shared video artifact concurrency](#shared-video-artifact-concurrency)).
 
 ### `acquiring_media` (`vtn_ingest`)
 
@@ -556,6 +567,15 @@ CREATE TABLE videos (
   title           text,
   duration_sec    numeric(10,3),
   proxy_blob_path text,                  -- stored video proxy for sampling + scrubbing
+  -- Per-artifact build state. Each shared artifact is populated by exactly one worker; others
+  -- wait for 'ready' or re-claim from 'absent'. See "Shared video artifact concurrency".
+  proxy_state      text NOT NULL DEFAULT 'absent',  -- 'absent' | 'building' | 'ready'
+  transcript_state text NOT NULL DEFAULT 'absent',  -- 'absent' | 'building' | 'ready'
+  visual_state     text NOT NULL DEFAULT 'absent',  -- 'absent' | 'building' | 'ready'
+  proxy_owner_job      uuid,             -- job that claimed the 'building' transition (audit/recovery)
+  transcript_owner_job uuid,
+  visual_owner_job     uuid,
+  artifacts_updated_at timestamptz NOT NULL DEFAULT now(),
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX uq_videos_canonical ON videos(canonical_url) WHERE canonical_url IS NOT NULL;
@@ -604,6 +624,9 @@ CREATE TABLE transcript_spans (
   source      text NOT NULL              -- 'source_captions' | 'youtube_captions' | 'azure_speech'
 );
 CREATE INDEX idx_spans_video_time ON transcript_spans(video_id, start_sec);
+-- One transcript row set per (video, start) — the owner does delete-before-insert per video_id
+-- inside its 'building' transaction; the unique key rejects any concurrent double-write.
+CREATE UNIQUE INDEX uq_spans_video_start ON transcript_spans(video_id, start_sec);
 
 -- Visual events detected from sampled frames (boundary hints + scene candidates).
 CREATE TABLE visual_events (
@@ -617,6 +640,9 @@ CREATE TABLE visual_events (
   frame_blob_path text
 );
 CREATE INDEX idx_visual_video_time ON visual_events(video_id, at_sec);
+-- One visual-event row per (video, timestamp, type); owner does delete-before-insert per video_id
+-- inside its 'building' transaction, so concurrent jobs can never duplicate the event set.
+CREATE UNIQUE INDEX uq_visual_video_at_type ON visual_events(video_id, at_sec, event_type);
 
 -- A clip = one timeline block. One summary and one scene per clip.
 CREATE TABLE clips (
@@ -645,8 +671,8 @@ CREATE INDEX idx_clips_job ON clips(job_id, order_index);
 -- The materialized assembled note. Exactly one current note per job.
 CREATE TABLE notes (
   job_id             uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
-  markdown           text NOT NULL,        -- canonical source of truth for export
-  include_transcript boolean NOT NULL DEFAULT false,
+  markdown           text NOT NULL,        -- canonical prose; NEVER contains transcript blocks
+  include_transcript boolean NOT NULL DEFAULT false, -- render/export flag only; transcript composited from transcript_spans, not stored here
   is_polished        boolean NOT NULL DEFAULT false, -- user hand-edited prose since last assemble/rebuild
   clips_dirty        boolean NOT NULL DEFAULT false, -- clips changed since note last built/kept (drift)
   built_from_version int,                  -- note_versions.seq the note was last assembled from
@@ -662,7 +688,7 @@ CREATE TABLE note_versions (
   kind            text NOT NULL,           -- 'initial'|'auto_edit'|'auto_pre_change'|'auto_rebuild'|'manual'|'restore'
   is_baseline     boolean NOT NULL DEFAULT false,  -- true only for seq=1; immutable, never pruned
   note_markdown   text NOT NULL,
-  note_settings   jsonb NOT NULL DEFAULT '{}',  -- {include_transcript, ...}
+  note_settings   jsonb NOT NULL DEFAULT '{}',  -- {include_transcript, is_polished, ...} restored verbatim
   clips_snapshot  jsonb NOT NULL,          -- full clip structure at snapshot time
   created_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (job_id, seq)
@@ -733,13 +759,59 @@ The numbered **steps** below are the sub-units of the stages in
   claims the canonical row atomically: under one transaction it takes
   `pg_advisory_xact_lock(hashtext(canonical_url))`, then `INSERT ... ON CONFLICT (canonical_url)
   DO NOTHING`. If a canonical row already exists it re-points `job.video_id` and deletes the
-  placeholder; otherwise it promotes its own placeholder. The owner performs the single
-  download; others skip-if-present once proxy + transcript exist.
+  placeholder; otherwise it promotes its own placeholder. After this, all jobs for the URL share
+  one `videos` row, and the per-artifact claim in
+  [Shared video artifact concurrency](#shared-video-artifact-concurrency) — not "who downloads" —
+  decides which single worker populates each shared artifact.
+
+### 1a. Shared video artifact concurrency
+
+Re-submit dedup re-points many jobs at one `videos` row, and `transcript_spans` / `visual_events`
+/ the proxy are keyed by `video_id`. So two jobs for the same canonical URL can reach
+`acquiring_media` / `analyzing` concurrently. Determinism by `job_id + stage` is **not** enough
+for these *video-scoped* artifacts; they need a **video-level claim**. Contract:
+
+- Each shared artifact has a state column on `videos` (`proxy_state`, `transcript_state`,
+  `visual_state`), each `absent → building → ready`.
+- A worker **claims** an artifact with a single atomic compare-and-set:
+
+  ```sql
+  UPDATE videos
+     SET proxy_state='building', proxy_owner_job=:job, artifacts_updated_at=now()
+   WHERE id=:video_id AND proxy_state='absent'
+  RETURNING id;   -- non-empty ⇒ this worker won the claim
+  ```
+
+  Exactly one worker can win (`absent` is the guard); the CAS is the lock, so no long-held
+  transaction is needed across the multi-minute download/transcribe.
+- **Winner** builds the artifact, then within one transaction does **delete-before-insert** of
+  the artifact's rows by `video_id` (for `transcript_spans` / `visual_events`) — or writes
+  `proxy_blob_path` — and sets the state to `ready`. The `uq_spans_video_start` /
+  `uq_visual_video_at_type` unique indexes make any accidental concurrent insert fail loudly
+  rather than duplicate.
+- **Losers** (CAS returned empty) **wait**: poll the state (or `LISTEN` on a per-video channel)
+  until it is `ready`, then skip-if-present and read the shared rows. They never write the shared
+  artifact.
+- **Failure / recovery**: a winner that fails resets its artifact `state` back to `absent` (and
+  clears the owner) as part of the job's failure handling, so a retry or a sibling job can
+  re-claim. A stale `building` older than a timeout (worker crash) is reclaimable: a CAS
+  `WHERE state='building' AND artifacts_updated_at < now() - :stale_timeout` lets one waiter take
+  over. Because the winner's write is delete-before-insert under the unique index, takeover is
+  safe even if the crashed worker had written partial rows.
+
+This makes proxy, transcript, and visual artifacts **single-writer per canonical video** while
+clip/note/version state stays job-scoped. The per-`job_id`+stage idempotency in
+[Idempotency and resumability](#idempotency-and-resumability) still governs *job-scoped* outputs
+(clips, note, scenes); this section governs the *video-scoped* shared ones.
 
 ### 2. Media acquisition (`vtn_ingest`)
 
+- **Claim** the proxy via the `proxy_state` CAS
+  ([Shared video artifact concurrency](#shared-video-artifact-concurrency)). Only the winner
+  downloads; losers wait for `proxy_state='ready'` and skip-if-present.
 - Download a single proxy via yt-dlp (or the source media URL) at a capped resolution (default
-  720p). Store as `videos.proxy_blob_path`. Skip-if-present for resume.
+  720p). Store as `videos.proxy_blob_path`, then set `proxy_state='ready'`. Skip-if-present for
+  resume.
 - The proxy is the single source of truth for automated sampling and review scrubbing / manual
   scene capture (same pixels everywhere).
 
@@ -750,8 +822,12 @@ Priority chain, each behind a `TranscriptProvider`:
 2. `YouTubeCaptionsProvider` — YouTube captions.
 3. `AzureSpeechProvider` — Azure AI Speech transcription from the proxy audio.
 
-Output normalized to `transcript_spans`. The chosen `source` is recorded and surfaced in the UI
-(no silent quality downgrade).
+Guarded by the `transcript_state` CAS
+([Shared video artifact concurrency](#shared-video-artifact-concurrency)): the winner runs the
+chain and, in one transaction, deletes existing `transcript_spans` for the `video_id` and inserts
+the new set, then sets `transcript_state='ready'`; losers wait and read. Output normalized to
+`transcript_spans`. The chosen `source` is recorded and surfaced in the UI (no silent quality
+downgrade).
 
 ### 4. Visual-event indexing (`vtn_visual`)
 
@@ -761,6 +837,10 @@ Output normalized to `transcript_spans`. The chosen `source` is recorded and sur
   change (OCR on candidate frames → text-change), keyframe candidate, demo/visual-dense (high
   local change rate), low-speech/high-visual-change.
 - Compute a `phash` per stored frame for later dedup.
+- Guarded by the `visual_state` CAS
+  ([Shared video artifact concurrency](#shared-video-artifact-concurrency)): the winner builds the
+  events and, in one transaction, deletes existing `visual_events` for the `video_id` and inserts
+  the new set, then sets `visual_state='ready'`; losers wait and read.
 
 ### 4b. Style extraction (`vtn_style`) — optional
 
@@ -856,10 +936,18 @@ Per clip:
 
 On entering `review_ready`, assemble `notes.markdown` from the clips in order. Each clip
 contributes a section: `## {order}. {title}` with its time range, the scene image (relative
-path) with `scene_caption`, the `summary` prose, and — only when `include_transcript` — a
-transcript blockquote built from the clip's `transcript_spans`. Write the `notes` row
+path) with `scene_caption`, and the `summary` prose. Write the `notes` row
 (`is_polished=false`, `clips_dirty=false`) and freeze the baseline version (`seq=1`,
 `kind='initial'`, `is_baseline=true`).
+
+**Transcript blocks are never persisted in `notes.markdown`.** `include_transcript` is a
+presentation flag, not note content: transcript blockquotes are **rendered virtually** — composed
+from each clip's `transcript_spans` at render time (Review) and at serialization time (export) —
+and inserted under each section **only when `include_transcript=true`**. The assembler above
+therefore writes the same `notes.markdown` regardless of the toggle. This keeps one source of
+truth: prose lives in `notes.markdown`; transcript text lives in `transcript_spans`; the toggle
+only decides whether the latter is composited into the rendered/exported document. See
+[Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection).
 
 ---
 
@@ -900,9 +988,12 @@ user attempts a clip change, a heads-up modal appears (see reconciliation).
 ### Review (document editor + version history)
 
 The assembled note rendered as an editable document: per section a heading + time range, the
-scene figure with an editable caption, the prose, and (when toggled on) a transcript blockquote.
-A Markdown toolbar (headings, bold/italic/inline-code, lists, quote, link, divider). An
-**"Include transcript"** toggle. A **version history** popover with **Save version** and
+scene figure with an editable caption, the editable prose, and — when the **"Include transcript"**
+toggle is on — a **read-only** transcript blockquote projected from the clip's `transcript_spans`
+(virtual; not part of the editable markdown, see
+[Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection)).
+A Markdown toolbar (headings, bold/italic/inline-code, lists, quote, link, divider). The
+**"Include transcript"** toggle persists only the boolean and re-renders without rewriting prose. A **version history** popover with **Save version** and
 **Restore**, and a **rebuild banner** when clips changed. **Proceed to export** moves on.
 
 ### Export
@@ -925,13 +1016,58 @@ the Review page mutates the **note**. Two flags on `notes` reconcile them.
 - **`clips_dirty`** — set **true** when clips change (split / merge / set-scene / title /
   summary edit) **while `is_polished` is true**. Cleared by **Rebuild** or **Keep my note**.
 
+### Clip mutations when the note is **not** polished (`is_polished=false`)
+
+This is the common case (the user has not hand-edited prose, or has just rebuilt). Here the note
+is still a faithful projection of the clips, so it must **never** be allowed to go stale:
+
+> **Auto-sync rule.** Any clip mutation (split / merge / set-scene / title / summary edit /
+> regenerate) performed while `is_polished=false` **synchronously re-assembles `notes.markdown`
+> from the current clips in the same transaction as the clip write**, leaving both
+> `is_polished=false` and `clips_dirty=false`. No acknowledgement, modal, dirty flag, or rebuild
+> banner is involved.
+
+The re-assembly reuses the same step-9 assembler ([Initial note assembly](#9-initial-note-assembly-vtn_notes))
+so the note and clips can never diverge while unpolished. Because every clip mutation commits the
+matching `notes.markdown` atomically, **export always reads a `notes.markdown` consistent with the
+clips** unless the user has *deliberately* chosen to keep a polished, drifted note (`is_polished=true`,
+the `clips_dirty` path below). There is no third state in which export can serve markdown that
+silently lags the clips.
+
+This makes the `needs_ack` / `clips_dirty` flow below an `is_polished=true`-only concern: the
+acknowledgement modal and rebuild banner exist solely to protect *hand-edited* prose, never to
+guard an unpolished note.
+
 The two UI warnings are pure functions of the flags:
 - Edit "Note will refresh" chip + heads-up modal ⇔ the user is about to change clips while
   `is_polished = true`.
 - Review rebuild banner ⇔ `clips_dirty = true`.
 
+### Transcript inclusion is a render-time projection
+
+Transcript blockquotes are **not part of `notes.markdown`** and are **not affected by polish,
+rebuild, drift, or versioning**. They are a pure projection of `transcript_spans` (which the
+worker writes once and clip edits keep aligned via clip boundaries):
+
+| Concern | Behavior |
+| --- | --- |
+| Source of truth | `notes.markdown` holds heading + scene + prose only; transcript text lives in `transcript_spans`. |
+| `include_transcript` | A boolean on `notes`. The only thing `PATCH /note {include_transcript}` persists. Toggling never rewrites `notes.markdown` and never sets `is_polished`. |
+| Review render | When the flag is true, each section renders a blockquote composed from the clip's spans, **below** the prose, visually distinct and **read-only** (the user edits prose, not transcript). |
+| Export | Identical compositing at serialize time — see [Export format](#export-format). |
+| User prose around transcript | Because the user never hand-edits inside a transcript block (it is virtual/read-only), there are no user edits to preserve across a toggle; flipping the boolean is lossless and reversible. |
+| Versioning | `note_settings.include_transcript` is snapshotted with each version, so restore reproduces the toggle state; the transcript itself is re-projected from spans, never stored in the snapshot. |
+
+This removes the conflict between a materialized note and a separate boolean: there is exactly one
+materialized artifact (prose) and one render-time decoration (transcript), and the boolean selects
+only the latter.
+
 ### Operations
 
+- **Auto-sync** (any clip change while `is_polished=false`) — re-assemble `notes.markdown` from the
+  current clips in the same transaction as the clip write; both flags stay false; no version frozen
+  beyond the normal clip write (the note tracks the clips for free). See the
+  [auto-sync rule](#clip-mutations-when-the-note-is-not-polished-is_polishedfalse) above.
 - **Keep editing** (Edit modal, on a clip change while polished) — freeze an `auto_pre_change`
   version capturing the still-consistent state (current clips + polished note) **at that
   instant**, then apply the clip change and set `clips_dirty = true`. **Cancel** aborts the clip
@@ -958,7 +1094,14 @@ History is **durable and per-job**. Each version is a full project snapshot (`no
 
 **Restore** applies a snapshot's note **and** clips together (replacing current clips with
 `clips_snapshot` after freezing the current state as a `restore` version first, so restore is
-non-destructive and itself undoable). Because history is durable, a page reload changes nothing.
+non-destructive and itself undoable). **Flags after restore are restored, not recomputed**:
+`notes.markdown` ← `note_markdown`, `notes.is_polished` ← `note_settings.is_polished`,
+`notes.include_transcript` ← `note_settings.include_transcript`, and **`clips_dirty` is always set
+to `false`** — the restored note and restored clips are by construction the consistent pair to
+resume from, so there is no pending drift to acknowledge. (Restoring a snapshot that was polished
+and intentionally drifted reproduces `is_polished=true` with `clips_dirty=false`, exactly the
+post-"Keep my note" state it was saved in.) Because history is durable, a page reload changes
+nothing.
 To return to a clean state the user **restores the baseline** (a "Restore original" shortcut
 equals restoring `seq=1`); to fully reprocess, the user **starts a new note** (a new job, which
 reuses the cached proxy + transcript for the same canonical URL).
@@ -981,6 +1124,15 @@ All endpoints require the session cookie. JSON unless noted. Two distinct guards
 and rejects stale writes with `412 Precondition Failed`; **state-gating** (e.g. editing clips
 before `review_ready`, or a clip change that needs acknowledgement) returns `409 Conflict`.
 
+Two ETag scopes apply to clips. A **single-clip ETag** (from that clip's `updated_at`) guards
+`PATCH /clips/{id}` and `POST /clips/{id}/scene`. Operations that reorder the whole collection —
+`POST /clips/{id}/split` and `POST /clips/merge` — instead guard on a **clips-collection ETag**
+for the job, derived as `max(clips.updated_at)` over the job's clips (a monotonic collection
+fingerprint). The client sends it as `If-Match`; a mismatch (any clip added, removed, or
+re-indexed since the client last read) returns `412`, preventing two structural edits from
+interleaving an `order_index` renumber. `GET /jobs/{id}/clips` returns this collection ETag
+alongside per-clip ETags.
+
 **Session & job creation**
 - `POST /login` `{username, password}` → sets `httpOnly` signed cookie.
 - `POST /jobs` `{url, depth, custom_prompt?, examples?, use_saved_style?}` → `202 {job_id,
@@ -995,17 +1147,22 @@ before `review_ready`, or a clip change that needs acknowledgement) returns `409
 - `POST /clips/{id}/scene` `{at_sec}` → frame-on-demand extraction; sets the clip scene; returns
   the asset URL.
 
-**Clips** (mutations enabled only at `review_ready`)
+**Clips** (mutations enabled once `review_ready` is reached, i.e. `status ∈ {review_ready, exported}`; an `active` job returns `job_not_review_ready`)
 - `GET /jobs/{id}/clips` → ordered clips with summaries, scenes, flags.
 - `PATCH /clips/{id}` `{title?, summary?}` → edit (sets `ai_summary` on first summary edit;
   clearing restores from `ai_summary`).
 - `POST /clips/{id}/split` `{at_sec}` → split at a transcript-anchored timestamp; both halves
-  `needs_regen=true`.
+  `needs_regen=true`. Guarded by the **clips-collection ETag** (`If-Match`), since it renumbers
+  `order_index`.
 - `POST /clips/merge` `{clip_ids:[…]}` → merge consecutive clips; result `needs_regen=true`.
+  Guarded by the **clips-collection ETag** (`If-Match`).
 - `POST /clips/{id}/regenerate` → regenerate the clip summary to fit; clears `needs_regen`.
 - Structural/scene/summary writes that mutate clips, when `notes.is_polished`, return `409
   needs_ack`; the client re-sends with `?ack=1` to proceed, which freezes the `auto_pre_change`
-  version and sets `clips_dirty`.
+  version and sets `clips_dirty`. When `notes.is_polished=false` the same writes succeed with no
+  ack and **synchronously re-assemble `notes.markdown` from the current clips in the same
+  transaction** (the [auto-sync rule](#clip-mutations-when-the-note-is-not-polished-is_polishedfalse));
+  both flags stay false, so export never serves note markdown that lags the clips.
 
 > Split and merge renumber `order_index` for the job in a single transaction, preserving the
 > `UNIQUE (job_id, order_index)` constraint.
@@ -1014,7 +1171,11 @@ before `review_ready`, or a clip change that needs acknowledgement) returns `409
 - `GET /jobs/{id}/note` → `{markdown, include_transcript, is_polished, clips_dirty}`.
 - `PUT /jobs/{id}/note` `{markdown}` → save prose (debounced autosave); sets `is_polished`;
   coalesces an `auto_edit` version.
-- `PATCH /jobs/{id}/note` `{include_transcript}` → toggle transcript inclusion.
+- `PATCH /jobs/{id}/note` `{include_transcript}` → toggle transcript inclusion. **Persisted change
+  is the boolean only**; `notes.markdown` is *not* rewritten and `is_polished` is *not* affected.
+  Review and export composite transcript blockquotes from `transcript_spans` at render/serialize
+  time when the flag is true (see
+  [Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection)).
 - `POST /jobs/{id}/note/rebuild` → re-assemble from current clips; clear flags; freeze
   `auto_rebuild`.
 - `POST /jobs/{id}/note/keep` → clear `clips_dirty` only.
@@ -1027,7 +1188,9 @@ before `review_ready`, or a clip change that needs acknowledgement) returns `409
 
 **Export**
 - `POST /jobs/{id}/export` → assemble ZIP from current state; returns `download_url`. Repeatable;
-  sets `status='exported'`.
+  sets `status='exported'`. Does **not** lock editing — clips/note/version mutations remain
+  available afterward (see [Editing is gated until `review_ready`](#editing-is-gated-until-review_ready)),
+  and a later export re-assembles from the edited state.
 
 **Error envelope.** Every error response is `{"error": {"code": "...", "message": "..."}}`.
 
@@ -1078,8 +1241,10 @@ its own incremental cost.
 ## Export format
 
 A ZIP assembled from current persisted state, repeatable at any time:
-- **`note.md`** — `notes.markdown` with relative image paths; transcript blockquotes included
-  iff `include_transcript`.
+- **`note.md`** — `notes.markdown` with relative image paths. When `include_transcript=true` the
+  serializer composites a transcript blockquote (built from each clip's `transcript_spans`) under
+  the matching section **at export time**; the blockquotes are not read from `notes.markdown` (it
+  never stores them). When false, `note.md` is `notes.markdown` verbatim (image paths rewritten).
 - **`images/`** — one scene per clip, named by order (`0001-intro.png`, `0002-arch.png`, …).
 - **`metadata.json`** — source URL, depth / resolved profile, transcript source, and per-clip +
   per-scene timestamps for audit and re-import.

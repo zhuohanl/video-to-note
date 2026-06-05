@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Submit · Video-to-Note</title>
+<link rel="icon" href="assets/favicon.svg" />
+<link rel="stylesheet" href="colors_and_type.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html" aria-label="Video-to-Note home">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M14 6 H29 L37 14 V39 A3 3 0 0 1 34 42 H14 A3 3 0 0 1 11 39 V9 A3 3 0 0 1 14 6 Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"></path>
+      <path d="M29 6 V14 H37" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+      <path d="M21 19 L21 31 L31 25 Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+    </svg>
+    <span class="word">Video<span class="sep">-to-</span>Note</span>
+  </a>
+  <nav class="steps">
+    <a class="step active" href="submit.html"><span class="n">1</span>Submit</a>
+    <span class="sep"></span>
+    <a class="step" href="editor.html"><span class="n">2</span>Edit</a>
+    <span class="sep"></span>
+    <a class="step" href="editor-review.html"><span class="n">3</span>Review</a>
+    <span class="sep"></span>
+    <a class="step" href="export.html"><span class="n">4</span>Export</a>
+  </nav>
+  <div class="topbar-right">
+    <a class="help-link" href="#"><i data-lucide="circle-help"></i>Help</a>
+  </div>
+</header>
+
+<main class="page narrow">
+  <div class="page-head">
+    <div class="eyebrow" style="margin-bottom:8px;">New note</div>
+    <h1>Turn a talk into reviewed notes.</h1>
+    <p>Paste a conference-talk URL and choose how deep the notes should go. You'll review and edit everything before export.</p>
+  </div>
+
+  <div class="col" style="gap:24px;">
+
+    <!-- URL -->
+    <div class="field">
+      <label class="eyebrow" for="url">Video URL</label>
+      <div class="input lg">
+        <i data-lucide="link"></i>
+        <input id="url" type="text" inputmode="url"
+          placeholder="https://www.youtube.com/watch?v=…   ·   or a Build / Ignite session URL" />
+      </div>
+    </div>
+
+    <!-- Depth -->
+    <div class="field">
+      <div class="row between" style="margin-bottom:2px;">
+        <span class="eyebrow">Note depth</span>
+        <span class="t-small faint row" style="gap:6px;"><i data-lucide="circle-help" style="width:14px;height:14px;"></i>Hover a card for detail</span>
+      </div>
+      <div class="depth-grid" id="depths">
+        <button class="depth sel" data-depth="thorough" type="button" title="Capture detail, like you're learning it.">
+          <span class="tick"><i data-lucide="check"></i></span>
+          <h4>Thorough <span class="q"><i data-lucide="circle-help" style="width:14px;height:14px;"></i></span></h4>
+          <p>Capture detail, like you're learning it.</p>
+        </button>
+        <button class="depth" data-depth="balanced" type="button" title="The useful middle.">
+          <span class="tick"><i data-lucide="check"></i></span>
+          <h4>Balanced <span class="q"><i data-lucide="circle-help" style="width:14px;height:14px;"></i></span></h4>
+          <p>The useful middle.</p>
+        </button>
+        <button class="depth" data-depth="brief" type="button" title="High-level takeaways.">
+          <span class="tick"><i data-lucide="check"></i></span>
+          <h4>Brief <span class="q"><i data-lucide="circle-help" style="width:14px;height:14px;"></i></span></h4>
+          <p>High-level takeaways.</p>
+        </button>
+        <button class="depth" data-depth="custom" type="button" title="Describe exactly what you want.">
+          <span class="tick"><i data-lucide="check"></i></span>
+          <h4>I'll prompt it <span class="q"><i data-lucide="circle-help" style="width:14px;height:14px;"></i></span></h4>
+          <p>Describe exactly what you want.</p>
+        </button>
+      </div>
+      <div class="field" id="customWrap" style="margin-top:12px;display:none;">
+        <label class="eyebrow" for="prompt">Custom prompt</label>
+        <textarea id="prompt" class="input" placeholder="Focus on the live demo and any CLI commands shown; keep prose tight…"></textarea>
+      </div>
+    </div>
+
+    <!-- Match my style -->
+    <div class="style-panel" id="stylePanel">
+      <button class="style-head" type="button" id="styleToggle" aria-expanded="false">
+        <i data-lucide="sparkles" style="width:17px;height:17px;color:var(--ink-3);"></i>
+        <span class="ttl">Match my style</span>
+        <span class="opt">optional</span>
+        <span class="chev"><i data-lucide="chevron-down"></i></span>
+      </button>
+      <div class="style-body">
+        <label class="style-saved">
+          <span class="radio"></span>
+          <span class="grow"><span style="font-weight:600;font-size:14px;">Use my saved style</span>
+            <span class="t-small faint" style="display:block;margin-top:1px;">2 example notes · fine-grained, detailed</span></span>
+          <span class="chip outline mono">2 notes</span>
+        </label>
+
+        <div class="style-or">or add examples for this job</div>
+
+        <div class="style-drop">
+          <i data-lucide="upload" style="width:20px;height:20px;color:var(--ink-3);"></i>
+          <div class="t-small muted">Drop <strong>.md</strong> files here, <a href="#">browse</a>, or paste markdown</div>
+          <div class="files">
+            <span class="file-chip"><i data-lucide="file-text"></i>my-talk-notes.md<span class="rm"><i data-lucide="x"></i></span></span>
+            <span class="file-chip"><i data-lucide="file-text"></i>kubecon-2024.md<span class="rm"><i data-lucide="x"></i></span></span>
+          </div>
+        </div>
+
+        <label class="row" style="gap:11px;cursor:pointer;">
+          <span class="toggle"><input type="checkbox" id="saveDefault" /><span class="track"></span><span class="knob"></span></span>
+          <span class="t-small muted">Save as my default style for future jobs</span>
+        </label>
+
+        <p class="t-small faint" style="margin:0;line-height:1.5;">Examples steer format, voice, and detail; <strong style="color:var(--ink-2);">depth</strong> fills in anything they don't pin down. Used as a style reference only — never a source of facts.</p>
+      </div>
+    </div>
+
+    <!-- Cost + submit -->
+    <div class="banner info">
+      <i data-lucide="circle-dollar-sign"></i>
+      <span>Est. <strong>~$1.42</strong> for this video — informational, warns but never blocks.</span>
+      <span class="b-meta">58 min · captions</span>
+    </div>
+
+    <div class="row between wrap" style="gap:12px;">
+      <span class="t-small faint">A run starts immediately and streams in as it drafts.</span>
+      <a class="btn primary lg" href="editor.html?run=1">Generate notes <i data-lucide="arrow-right"></i></a>
+    </div>
+
+  </div>
+</main>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  lucide.createIcons();
+
+  // Depth selection
+  const depths = document.getElementById('depths');
+  const customWrap = document.getElementById('customWrap');
+  depths.addEventListener('click', (e) => {
+    const card = e.target.closest('.depth');
+    if (!card) return;
+    depths.querySelectorAll('.depth').forEach(d => d.classList.remove('sel'));
+    card.classList.add('sel');
+    customWrap.style.display = card.dataset.depth === 'custom' ? 'flex' : 'none';
+  });
+
+  // Style panel expand/collapse
+  const panel = document.getElementById('stylePanel');
+  const toggle = document.getElementById('styleToggle');
+  toggle.addEventListener('click', () => {
+    const open = panel.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  // Remove file chips
+  document.querySelectorAll('.file-chip .rm').forEach(rm => {
+    rm.addEventListener('click', (e) => { e.preventDefault(); rm.closest('.file-chip').remove(); });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Progress · Video-to-Note</title>
+<link rel="icon" href="assets/favicon.svg" />
+<link rel="stylesheet" href="colors_and_type.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html" aria-label="Video-to-Note home">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M14 6 H29 L37 14 V39 A3 3 0 0 1 34 42 H14 A3 3 0 0 1 11 39 V9 A3 3 0 0 1 14 6 Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"></path>
+      <path d="M29 6 V14 H37" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+      <path d="M21 19 L21 31 L31 25 Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+    </svg>
+    <span class="word">Video<span class="sep">-to-</span>Note</span>
+  </a>
+  <nav class="steps">
+    <a class="step done" href="submit.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Submit</a>
+    <span class="sep"></span>
+    <a class="step active" href="progress.html"><span class="n">2</span>Progress</a>
+    <span class="sep"></span>
+    <a class="step" href="review.html"><span class="n">3</span>Review</a>
+    <span class="sep"></span>
+    <a class="step" href="export.html"><span class="n">4</span>Export</a>
+  </nav>
+  <div class="topbar-right">
+    <button class="btn ghost sm"><i data-lucide="x"></i>Cancel run</button>
+  </div>
+</header>
+
+<main class="page narrow">
+  <div class="page-head" style="margin-bottom:22px;">
+    <div class="eyebrow" style="margin-bottom:8px;">Processing</div>
+    <h1>Deploying AI apps to Azure</h1>
+    <p>Drafting your notes. Sections appear below the moment they're ready — you can start reading before the run finishes.</p>
+  </div>
+
+  <!-- Stage indicator -->
+  <div class="card pad" style="margin-bottom:18px;">
+    <div class="workflow">
+      <div class="wf-step done">
+        <div class="wf-node"><i data-lucide="check"></i></div>
+        <div class="wf-label">resolving</div>
+      </div>
+      <div class="wf-line done"></div>
+      <div class="wf-step done">
+        <div class="wf-node"><i data-lucide="check"></i></div>
+        <div class="wf-label">acquiring</div>
+      </div>
+      <div class="wf-line done"></div>
+      <div class="wf-step done">
+        <div class="wf-node"><i data-lucide="check"></i></div>
+        <div class="wf-label">analyzing</div>
+        <div class="wf-branches">
+          <span class="wf-branch done"><i data-lucide="check"></i>transcribe</span>
+          <span class="wf-branch done"><i data-lucide="check"></i>index</span>
+          <span class="wf-branch done style"><i data-lucide="check"></i>style</span>
+        </div>
+      </div>
+      <div class="wf-line done"></div>
+      <div class="wf-step done">
+        <div class="wf-node"><i data-lucide="check"></i></div>
+        <div class="wf-label">segmenting</div>
+      </div>
+      <div class="wf-line active"><span style="width:60%"></span></div>
+      <div class="wf-step active">
+        <div class="wf-node"><i data-lucide="loader" class="spin"></i></div>
+        <div class="wf-label">drafting</div>
+      </div>
+    </div>
+    <div class="wf-foot">
+      <div class="progress-rail" style="flex:1;"><span style="width:82%"></span></div>
+      <span class="t-small muted nowrap">Section 3 of 4</span>
+      <span class="mono faint nowrap" style="font-size:11.5px;">~20s left</span>
+    </div>
+  </div>
+
+  <!-- Streaming sections -->
+  <div class="row between" style="margin-top:24px;margin-bottom:12px;">
+    <span class="eyebrow">Sections</span>
+    <span class="t-small faint">Streamed by order, edit as they arrive</span>
+  </div>
+  <div class="col" style="gap:12px;">
+
+    <!-- ready -->
+    <div class="card pad">
+      <div class="row" style="gap:10px;margin-bottom:10px;">
+        <span class="mono" style="font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:var(--r-sm);padding:2px 7px;">01</span>
+        <span style="font-weight:600;">Opening &amp; session goals</span>
+        <span class="chip text_led" title="text_led — mostly carried by what's said; prose-heavy notes, few screenshots."><span class="dot"></span>text_led</span>
+        <span class="chip ok" style="margin-left:auto;"><i data-lucide="check"></i>ready</span>
+      </div>
+      <p class="t-small muted" style="margin:0;max-width:60ch;">The speaker frames the session around shipping a working AI app to Azure by the end, and sets expectations for the live demo.</p>
+      <hr class="divider" style="margin:13px 0 11px;" />
+      <div class="row wrap" style="gap:8px;">
+        <button class="btn ghost sm"><i data-lucide="refresh-cw"></i>Regenerate</button>
+        <button class="btn ghost sm is-disabled" title="Available once drafting finishes"><i data-lucide="scissors"></i>Split</button>
+        <button class="btn ghost sm is-disabled" title="Available once drafting finishes"><i data-lucide="combine"></i>Merge up</button>
+        <span class="t-small faint row" style="gap:6px;margin-left:2px;"><i data-lucide="lock" style="width:13px;height:13px;"></i>Split / Merge unlock when drafting finishes</span>
+      </div>
+    </div>
+
+    <!-- ready -->
+    <div class="card pad">
+      <div class="row" style="gap:10px;margin-bottom:10px;">
+        <span class="mono" style="font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:var(--r-sm);padding:2px 7px;">02</span>
+        <span style="font-weight:600;">Architecture overview</span>
+        <span class="chip mixed" title="mixed — a balance of spoken and on-screen content."><span class="dot"></span>mixed</span>
+        <span class="chip ok" style="margin-left:auto;"><i data-lucide="check"></i>ready</span>
+      </div>
+      <p class="t-small muted" style="margin:0;max-width:60ch;">A pipeline of small services behind provider adapters keeps models swappable; work is queued per stage and streamed to the client.</p>
+    </div>
+
+    <!-- drafting -->
+    <div class="card pad" style="border-style:dashed;border-color:var(--accent-border);">
+      <div class="row" style="gap:10px;margin-bottom:12px;">
+        <span class="mono" style="font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:var(--r-sm);padding:2px 7px;">03</span>
+        <span style="font-weight:600;">Live demo: deploy worker</span>
+        <span class="chip visual_led" title="visual_led — mostly carried by what's shown (slides, demos, code); more screenshots."><span class="dot"></span>visual_led</span>
+        <span class="chip" style="margin-left:auto;background:var(--accent-soft);color:var(--accent-ink);"><i data-lucide="loader" class="spin" style="width:14px;height:14px;"></i>drafting…</span>
+      </div>
+      <div class="skel"><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- upcoming -->
+    <div class="well" style="display:flex;align-items:center;gap:10px;padding:15px 16px;border:1px dashed var(--border-2);">
+      <i data-lucide="file-text" style="width:18px;height:18px;color:var(--ink-3);"></i>
+      <span class="t-small faint">Section 4 (Q&amp;A) will appear here as it's drafted.</span>
+    </div>
+  </div>
+
+  <div class="row between wrap" style="gap:14px;margin-top:18px;">
+    <p class="t-small faint" style="display:flex;gap:7px;align-items:flex-start;max-width:52ch;margin:0;">
+      <i data-lucide="info" style="width:15px;height:15px;flex:none;margin-top:1px;"></i>
+      Ready sections are editable now — this view becomes the full editor when drafting finishes.
+    </p>
+    <a class="btn primary" href="review.html">Open the editor<i data-lucide="arrow-right"></i></a>
+  </div>
+</main>
+
+<style>
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+</style>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

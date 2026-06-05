@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Editor · Video-to-Note</title>
+<link rel="icon" href="assets/favicon.svg" />
+<link rel="stylesheet" href="colors_and_type.css" />
+<link rel="stylesheet" href="app.css" />
+<link rel="stylesheet" href="editor.css?v=16" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html" aria-label="Video-to-Note home">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M14 6 H29 L37 14 V39 A3 3 0 0 1 34 42 H14 A3 3 0 0 1 11 39 V9 A3 3 0 0 1 14 6 Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"></path>
+      <path d="M29 6 V14 H37" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+      <path d="M21 19 L21 31 L31 25 Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+    </svg>
+    <span class="word">Video<span class="sep">-to-</span>Note</span>
+  </a>
+  <nav class="steps">
+    <a class="step done" href="submit.html"><span class="n"><i data-lucide="check" style="width:12px;height:12px;"></i></span>Submit</a>
+    <span class="sep"></span>
+    <a class="step active" href="editor.html"><span class="n">2</span>Edit</a>
+    <span class="sep"></span>
+    <a class="step" href="editor-review.html"><span class="n">3</span>Review</a>
+    <span class="sep"></span>
+    <a class="step" href="export.html"><span class="n">4</span>Export</a>
+  </nav>
+  <div class="topbar-right">
+    <span class="chip warn" id="refreshChip" style="display:none;" data-tip="When you reach Review, your note can refresh to include these clip changes — your polished copy is saved in History."><i data-lucide="refresh-cw"></i>Note will refresh</span>
+    <span class="chip ok" id="saveStatus"><i data-lucide="check"></i>Saved</span>
+    <a class="btn primary sm" href="editor-review.html">Continue to review<i data-lucide="arrow-right"></i></a>
+  </div>
+</header>
+
+<div class="ed-app">
+  <!-- top: preview stage + inspector -->
+  <div class="ed-top">
+    <div class="ed-stage">
+      <div class="stage-tools">
+        <span class="stage-chip" id="nowClip">01 · Opening</span>
+        <span class="stage-chip"><i data-lucide="captions"></i>Captions</span>
+      </div>
+      <div class="ed-screen">video proxy · 720p</div>
+      <div class="ed-transport">
+        <button class="tp-btn" aria-label="Seek to start" data-tip="Seek to start"><i data-lucide="skip-back"></i></button>
+        <button class="tp-btn" aria-label="Back 5s" data-tip="Back 5 seconds"><i data-lucide="rotate-ccw"></i></button>
+        <button class="tp-btn play" aria-label="Play" data-tip="Play / pause"><i data-lucide="play"></i></button>
+        <button class="tp-btn" aria-label="Forward 5s" data-tip="Forward 5 seconds"><i data-lucide="rotate-cw"></i></button>
+        <span class="tp-time" id="tpTime">0:00 / 31:20</span>
+      </div>
+    </div>
+
+    <!-- selected-clip inspector (filled by JS) -->
+    <aside class="ed-inspector" id="inspector"></aside>
+  </div>
+
+  <!-- bottom: timeline -->
+  <div class="ed-timeline">
+    <div class="tl-toolbar">
+      <button class="tl-tool" id="splitBtn" data-tip="Split the clip at the playhead"><i data-lucide="scissors"></i>Split</button>
+      <button class="tl-tool" id="mergeBtn" data-tip="Merge the selected consecutive clips"><i data-lucide="combine"></i>Merge</button>
+      <button class="tl-tool" id="setSceneBtn" data-tip="Set this clip's screenshot to the frame at the playhead"><i data-lucide="image-down"></i>Set scene</button>
+      <span class="tl-hint" id="tlHint">Move the playhead, then Split to cut a clip; hover a boundary to Merge.</span>
+      <span class="spacer"></span>
+      <span class="tl-zoom">
+        <button id="zoomOut" aria-label="Zoom out" data-tip="Zoom out"><i data-lucide="minus"></i></button>
+        <button id="zoomFit" aria-label="Fit" data-tip="Fit timeline to width"><i data-lucide="maximize-2"></i></button>
+        <button id="zoomIn" aria-label="Zoom in" data-tip="Zoom in"><i data-lucide="plus"></i></button>
+      </span>
+    </div>
+    <div class="tl-body">
+      <div class="tl-gutter">
+        <div class="g-ruler"></div>
+        <div class="g-lbl g-shot"><i data-lucide="image"></i>Screenshot</div>
+        <div class="g-lbl g-seg"><i data-lucide="film"></i>Clips</div>
+        <div class="g-lbl g-tx"><i data-lucide="captions"></i>Transcript</div>
+        <div class="g-lbl g-sum"><i data-lucide="text"></i>Summary/Notes</div>
+      </div>
+      <div class="tl-scroll" id="tlScroll">
+        <div class="tl-canvas" id="tlCanvas">
+          <div class="tl-ruler" id="tlRuler"></div>
+          <div class="tl-lane shot" id="laneShot"></div>
+          <div class="tl-lane seg" id="laneSeg"></div>
+          <div class="tl-lane tx" id="laneTx"></div>
+          <div class="tl-lane sum" id="laneSum"></div>
+          <div class="tl-hover" id="tlHover"><span class="lbl"></span></div>
+          <div class="tl-playhead" id="tlPlayhead"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="editor.js?v=13"></script>
+</body>
+</html>

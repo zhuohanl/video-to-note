@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in · Video-to-Note</title>
+<link rel="icon" href="assets/favicon.svg" />
+<link rel="stylesheet" href="colors_and_type.css" />
+<link rel="stylesheet" href="app.css" />
+<style>
+  .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .auth-card { width: 100%; max-width: 380px; }
+  .auth-brand { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 26px; text-align: center; }
+  .auth-brand .mark { width: 40px; height: 40px; color: var(--accent); }
+  .auth-brand .word { font-family: var(--font-serif); font-weight: 600; font-size: 22px; color: var(--ink); white-space: nowrap; }
+  .auth-brand .word .sep { color: var(--ink-3); }
+  .auth-brand .tag { color: var(--ink-2); font-size: 14px; }
+</style>
+</head>
+<body>
+<main class="auth">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M14 6 H29 L37 14 V39 A3 3 0 0 1 34 42 H14 A3 3 0 0 1 11 39 V9 A3 3 0 0 1 14 6 Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"></path>
+        <path d="M29 6 V14 H37" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+        <path d="M21 19 L21 31 L31 25 Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+      </svg>
+      <div class="word">Video<span class="sep">-to-</span>Note</div>
+      <div class="tag">A reading room for talks.</div>
+    </div>
+
+    <form class="card pad" style="display:flex;flex-direction:column;gap:16px;" onsubmit="location.href='submit.html';return false;">
+      <div class="field">
+        <label class="eyebrow" for="user">Username</label>
+        <div class="input"><i data-lucide="user"></i><input id="user" type="text" value="team" autocomplete="username" style="font-family:var(--font-sans);" /></div>
+      </div>
+      <div class="field">
+        <label class="eyebrow" for="pass">Password</label>
+        <div class="input"><i data-lucide="lock"></i><input id="pass" type="password" value="password" autocomplete="current-password" style="font-family:var(--font-sans);" /></div>
+      </div>
+      <button class="btn primary lg block" type="submit">Sign in <i data-lucide="arrow-right"></i></button>
+    </form>
+
+    <p class="t-small faint" style="text-align:center;margin:16px auto 0;max-width:300px;line-height:1.5;display:flex;gap:7px;align-items:flex-start;justify-content:center;">
+      <i data-lucide="info" style="width:14px;height:14px;flex:none;margin-top:2px;"></i>
+      A single shared credential gates the app. Sessions are kept in a signed, http-only cookie.
+    </p>
+  </div>
+</main>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

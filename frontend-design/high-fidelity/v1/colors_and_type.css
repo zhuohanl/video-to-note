@@ -1,0 +1,160 @@
+/* =====================================================================
+   Video-to-Note — Design Foundations
+   Colors + Type tokens. Import this everywhere.
+
+   Direction: "A reading room for talks." Technical, calm, content-first.
+   Warm paper light theme. IBM Plex trio. One steel-blue accent.
+   ===================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ---- Font families ------------------------------------------------ */
+  --font-sans:  'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: 'IBM Plex Serif', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono:  'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* ---- Neutrals — warm paper --------------------------------------- */
+  --paper:         #F7F5F0;  /* app background                          */
+  --paper-sunken:  #EFEDE6;  /* wells, code blocks, inset areas         */
+  --surface:       #FFFFFF;  /* cards, panels, inputs                   */
+  --surface-2:     #FBFAF7;  /* subtly raised / striped rows            */
+  --ink:           #1C1B18;  /* fg1 — primary text                      */
+  --ink-2:         #56544C;  /* fg2 — secondary text, metadata          */
+  --ink-3:         #8B887D;  /* fg3 — faint text, placeholders          */
+  --border:        #E5E2D9;  /* hairlines, card borders                 */
+  --border-2:      #D4D0C4;  /* stronger dividers, input borders        */
+
+  /* ---- Accent — calm steel blue ------------------------------------ */
+  --accent:        #2E5AAC;  /* primary action / brand                  */
+  --accent-hover:  #254A8F;
+  --accent-press:  #1E3D78;
+  --accent-soft:   #EAF0FA;  /* tinted background                       */
+  --accent-ink:    #234887;  /* accent text on light                    */
+  --accent-border: #C5D5EF;
+
+  /* ---- Section classification (text_led / visual_led / mixed) ------ */
+  --cls-text-bg:   #EAF0FA;  --cls-text-fg:   #234887;  --cls-text-dot:   #2E5AAC;
+  --cls-visual-bg: #FAEEDA;  --cls-visual-fg: #8A5713;  --cls-visual-dot: #C57F1B;
+  --cls-mixed-bg:  #E0F0EA;  --cls-mixed-fg:  #1C6B52;  --cls-mixed-dot:  #2A8267;
+
+  /* ---- Semantic feedback ------------------------------------------- */
+  --warn-bg:    #FBF0DB;  --warn-fg:    #8A5713;  --warn-border:    #E6D6AE;
+  --error-bg:   #FBE9E6;  --error-fg:   #A8362B;  --error-border:   #EDC8C1;
+  --success-bg: #E2F1E9;  --success-fg: #1C6B52;  --success-border: #C2E0D2;
+  --info-bg:    var(--accent-soft); --info-fg: var(--accent-ink); --info-border: var(--accent-border);
+
+  /* ---- Radii — modest, technical ----------------------------------- */
+  --r-xs:   4px;
+  --r-sm:   6px;
+  --r-md:   8px;
+  --r-lg:   12px;
+  --r-xl:   16px;
+  --r-pill: 999px;
+
+  /* ---- Elevation — whisper-soft on paper --------------------------- */
+  --shadow-sm:    0 1px 2px rgba(28,27,24,.05);
+  --shadow-md:    0 2px 8px rgba(28,27,24,.07), 0 1px 2px rgba(28,27,24,.05);
+  --shadow-lg:    0 10px 30px rgba(28,27,24,.10), 0 2px 6px rgba(28,27,24,.05);
+  --shadow-focus: 0 0 0 3px rgba(46,90,172,.20);
+  --shadow-inset: inset 0 1px 2px rgba(28,27,24,.05);
+
+  /* ---- Spacing scale (4px base) ------------------------------------ */
+  --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+  --sp-5: 20px;  --sp-6: 24px;  --sp-8: 32px;  --sp-10: 40px;
+  --sp-12: 48px; --sp-16: 64px;
+
+  /* ---- Motion ------------------------------------------------------- */
+  --ease: cubic-bezier(.2,.6,.2,1);
+  --dur-fast: 120ms;
+  --dur:      180ms;
+  --dur-slow: 280ms;
+}
+
+/* =====================================================================
+   Semantic type roles — apply as classes or copy the declarations.
+   Body/prose is serif (the notes read like a document); UI chrome is
+   sans; timestamps, code, URLs and technical metadata are mono.
+   ===================================================================== */
+
+.t-display {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.t-h1 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.t-h2 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 23px;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+.t-h3 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1.3;
+  color: var(--ink);
+}
+/* Note prose — the reading surface. Serif, generous line height. */
+.t-prose {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 16.5px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+/* UI body — buttons, labels, form text. */
+.t-body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.t-small {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+/* Eyebrow / label — uppercase, tracked. */
+.t-label {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 11.5px;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* Timestamps, durations, technical metadata. */
+.t-mono {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+/* Inline + block code. */
+.t-code {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}

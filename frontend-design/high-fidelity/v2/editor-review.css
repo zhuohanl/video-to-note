@@ -1,0 +1,28 @@
+/* editor-review.css — assembled-note review styles */
+.tx-toggle { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.tx-toggle .tx-lbl { font-size: 13px; color: var(--ink-2); }
+
+.er-doc { max-width: 880px; margin: 0 auto; }
+.er-title { font-family: var(--font-serif); font-size: 30px; font-weight: 600; margin: 4px 0 4px; letter-spacing: -.01em; }
+.er-meta { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-3); margin: 0 0 8px; }
+
+/* screenshot figures in the note */
+.er-doc .rv3-fig { margin: 16px 0; max-width: 540px; }
+.er-doc .rv3-fig .shot { aspect-ratio: 16/9; border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; color: #cdddf5; font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--border); }
+.er-doc .rv3-fig figcaption { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 12.5px; color: var(--ink-2); }
+.er-doc .rv3-fig figcaption .cap { flex: 1; min-width: 0; border-radius: var(--r-xs); padding: 1px 4px; margin: 0 -4px; }
+.er-doc .rv3-fig figcaption .cap:hover { background: var(--paper-sunken); }
+.er-doc .rv3-fig figcaption .cap:focus { outline: none; box-shadow: var(--shadow-focus); }
+.er-doc .rv3-fig figcaption .mono { flex: none; }
+
+/* transcript blocks — hidden unless toggled on */
+.note-tx { display: none; position: relative; margin: 12px 0; padding: 10px 14px 10px 15px; border-left: 3px solid var(--border-2); background: var(--paper-sunken); border-radius: 0 var(--r-md) var(--r-md) 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+body.show-tx .note-tx { display: block; }
+.note-tx .tx-tag { display: inline-block; font-family: var(--font-sans); font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-right: 8px; vertical-align: 1px; }
+
+/* rebuild banner (clips changed in Edit after the note was polished) */
+.er-rebuild { display: flex; align-items: center; gap: 12px; margin: 0 0 20px; padding: 13px 16px; background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); color: var(--warn-fg); font-size: 13.5px; line-height: 1.45; }
+.er-rebuild > svg { width: 19px; height: 19px; flex: none; }
+.er-rebuild .grow { flex: 1; min-width: 0; }
+.er-rebuild b { font-weight: 600; }
+.er-rebuild .btn { flex: none; }
