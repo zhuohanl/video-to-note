@@ -252,6 +252,52 @@ flowchart TD
 `extract style` branches from job submit (it needs only the supplied examples / saved default)
 and feeds granularity into `segmenting` and style/density into `drafting`.
 
+### Connection types
+
+Every transport between tiers, and who never talks to whom:
+
+| Transport | Direction | Used for |
+| --- | --- | --- |
+| One-shot REST | browser → API | login, submit (`POST /jobs`), export |
+| SSE (push) | API → browser | job progress + per-clip readiness (`GET /jobs/{id}/events`) |
+| Synchronous REST | browser ↔ API | all interactive editing (clips, note, versions) |
+| Range / streaming | API → browser | proxy video scrubbing, scene image fetch |
+
+The **browser never calls the worker**. Progress flows **up** from the worker as `job_events`
+rows the API pushes over SSE; edits flow **across** via synchronous REST that never touches the
+worker.
+
+### User-facing flow → backend state
+
+| Flow step | Backend state | Note |
+| --- | --- | --- |
+| login | none | session cookie only; not a job state |
+| submit | `status=active`, `stage` `queued`→`drafting` | one `POST /jobs` starts the worker |
+| edit | `status=review_ready` | the timeline is shown earlier (progressively), but editing tools unlock only here |
+| review | `status=review_ready` | the **same** state as edit — two UI surfaces over one state, reconciled by the flags in [reconciliation](#edit--review-reconciliation-and-versioning) |
+| export | `status=exported` | `POST /jobs/{id}/export`, repeatable |
+
+### Event contract (SSE)
+
+Each `job_events` row surfaces as one SSE event. Types, when emitted, and how the Edit page
+reacts:
+
+| Event `type` | Emitted when | Payload | Frontend reaction |
+| --- | --- | --- | --- |
+| `stage` | a stage is entered | `{stage}` | advance the "preparing" indicator; reveal the lane that stage feeds |
+| `cost.estimate` | `resolving` refines the estimate | `{usd, breakdown}` | update the cost banner |
+| `style.resolved` | `extract style` finishes | `{profile}` | show which dimensions came from examples vs depth |
+| `clip.ready` | a clip's summary + scene are written | `{clip_id, order_index}` | fill that clip's summary-lane skeleton |
+| `warning` | non-blocking degradation | `{code, message}` | inline notice (e.g. "ASR fallback") |
+| `error` | a stage fails | `{code, message, stage}` | show failure + offer retry |
+| `done` | `status` becomes `review_ready` | `{}` | unlock Edit tools (the initial note is already assembled server-side) |
+
+During the parallel `analyzing` fork each branch emits its own `stage` event
+(`transcribe` / `index visual` / `extract style`) while `jobs.stage` stays at `analyzing`
+(see [the parallel fork](#domain-model-and-job-lifecycle)). The lane-readiness table in
+[Editing is gated until `review_ready`](#editing-is-gated-until-review_ready) is the loading-state
+view of these same events.
+
 ---
 
 ## Repository structure
@@ -308,6 +354,36 @@ A **job** is one processing run for one **video** with one set of **prompt setti
 an ordered list of **clips**, exactly one assembled **note**, and a durable list of **note
 versions**.
 
+### Terminology
+
+Defined once and used the same way in prose and diagrams:
+
+| Term | Meaning |
+| --- | --- |
+| **stage** | A node of the pipeline state machine, recorded in `jobs.stage` (`queued`, `resolving`, `acquiring_media`, `analyzing`, `segmenting`, `drafting`). The unit the worker advances through. |
+| **step** | A numbered sub-unit *inside* a stage — the algorithms in [Pipeline (detailed algorithms)](#pipeline-detailed-algorithms). A stage contains one or more steps. |
+| **status** | The job lifecycle value in `jobs.status` (`active`, `review_ready`, `exported`, `failed`, `canceled`). `stage` advances only while `status='active'`. |
+| **clip** | One timeline block: a contiguous time range with a title, one summary, and one scene. The unit the Edit page manipulates. |
+| **scene** | The single screenshot chosen for a clip (the frame at `scene_at_sec`). |
+| **summary seed** | The one-line gist written per clip at `segmenting` (`clips.summary_seed`); feeds the cross-clip outline. Distinct from the full `summary` written at `drafting`. |
+| **note** | The single materialized Markdown document assembled from the clips; the unit the Review page edits and export serializes. |
+| **version** | An immutable full-project snapshot (note + clip structure + settings) in history; `seq` is its user-visible number (v1, v2, …). |
+| **drift** | The allowed state where the note no longer matches the clips (after "Keep my note"). Tracked by `notes.clips_dirty`. |
+
+Stage → steps → owning package:
+
+| Stage (`jobs.stage`) | Steps (detailed algorithms) | Package |
+| --- | --- | --- |
+| `resolving` | 1 | `vtn_ingest` |
+| `acquiring_media` | 2 | `vtn_ingest` |
+| `analyzing` (parallel) | 3 transcribe · 4 index visual · 4b extract style | `vtn_transcript` / `vtn_visual` / `vtn_style` |
+| `segmenting` | 5 boundary signals · 6 fusion + refinement | `vtn_segment` |
+| `drafting` | 7 scene selection · 8 clip summary | `vtn_notes` |
+
+`review_ready` and `exported` are **statuses, not stages**: entering `review_ready` runs step 9
+(initial note assembly) and entering `exported` runs export assembly — neither advances
+`jobs.stage`.
+
 ### Job state machine
 
 ```text
@@ -317,10 +393,13 @@ queued
   → analyzing        (transcribe + index visual + extract style, concurrently)
   → segmenting       (signal detection → fusion → LLM refinement → clips)
   → drafting         (per-clip summary + scene, emitted progressively)
+       ↑ jobs.stage advances through the values above (only while status='active')
+
+  ── then jobs.status advances; jobs.stage stays at its last value ──
   → review_ready     (all clips drafted; initial note assembled; editing unlocked)
   → exported         (ZIP produced)
 
-Side states:
+Side states (jobs.status):
   failed             (stage recorded; resumable)
   canceled
 ```
@@ -366,6 +445,10 @@ reindex race.
 ---
 
 ## Pipeline stages (overview)
+
+This section says *what each stage does and why*; the precise algorithms (the **steps**) are in
+[Pipeline (detailed algorithms)](#pipeline-detailed-algorithms). Each heading is a stage from the
+[state machine](#job-state-machine).
 
 ### `resolving` (`vtn_ingest`)
 
@@ -444,13 +527,13 @@ each out as it finishes:
   cross-clip continuity and non-redundancy. Each finished clip writes its `summary` + scene and
   publishes a `clip.ready` event.
 
-### `review_ready` (`vtn_notes`)
+### `review_ready` (status — `vtn_notes` assembles the note)
 
 All clips drafted. The worker **assembles the initial note** from the clips (in `order_index`
 order: title + scene + summary, transcript excluded by default), writes the `notes` row, and
 freezes the **immutable baseline version** (`seq=1`, "Initial note"). Editing tools unlock.
 
-### `exported` (`vtn_export`)
+### `exported` (status — `vtn_export`)
 
 Assemble a ZIP from current state: `note.md` with relative image paths, an `images/` folder
 (one scene per clip), and a `metadata.json` capturing source URL, depth, transcript source, and
@@ -543,10 +626,12 @@ CREATE TABLE clips (
   start_sec       numeric(10,3) NOT NULL,
   end_sec         numeric(10,3) NOT NULL,
   title           text,
-  summary         text,                   -- the generated text; also the section prose source
+  summary_seed    text,                   -- one-line gist from segmenting; feeds the cross-clip outline
+  summary         text,                   -- the generated prose (drafting); also the section prose source
   ai_summary      text,                   -- last AI version (for "Restore AI summary"); null until edited
   classification  text,                   -- 'text_led' | 'visual_led' | 'mixed'
   confidence      real,
+  status          text NOT NULL DEFAULT 'pending', -- 'pending' (segmented) | 'ready' (drafted)
   scene_at_sec    numeric(10,3),          -- timestamp of the chosen screenshot frame
   scene_blob_path text,                   -- materialized frame
   scene_caption   text,
@@ -630,6 +715,11 @@ Raw example Markdown lives in the `examples` Blob container; the row holds only 
 ---
 
 ## Pipeline (detailed algorithms)
+
+The numbered **steps** below are the sub-units of the stages in
+[Pipeline stages (overview)](#pipeline-stages-overview) (see [Terminology](#terminology)). Steps
+1–2 are single-step stages; steps 3 / 4 / 4b are the parallel `analyzing` branches; steps 5–6 are
+`segmenting`; steps 7–8 are `drafting`; step 9 runs on entering `review_ready`.
 
 ### 1. URL resolution & ingestion (`vtn_ingest`)
 
@@ -736,7 +826,8 @@ matches the proxy; on detected drift, emit a warning (never silently misalign).
    schema-validated; on invalid JSON, one retry then fall back to unrefined boundaries with a
    warning. If the outline exceeds the token budget, chunk into contiguous ranges with overlap
    and stitch.
-7. Persist `clips` in order.
+7. Persist `clips` in order (each with `status='pending'`, plus `title`, `summary_seed`, and
+   `classification`; the full `summary` and `scene` are written later by `drafting`).
 
 ### 7. Scene selection (`vtn_notes`)
 
@@ -758,8 +849,8 @@ Per clip:
   clip transcript, small neighbor context, visual/OCR summary, the chosen scene, the resolved
   `style_profile` (style descriptor + density + merged derived/custom prompt), and the **global
   outline** (every clip's title + summary seed) so clips stay consistent and non-redundant.
-- Write `clips.summary` (and set `clips.ai_summary` to the same value), flip clip status to
-  ready, publish `clip.ready`.
+- Write `clips.summary` (and set `clips.ai_summary` to the same value), set
+  `clips.status='ready'`, publish `clip.ready`.
 
 ### 9. Initial note assembly (`vtn_notes`)
 
@@ -885,8 +976,10 @@ reuses the cached proxy + transcript for the same canonical URL).
 
 ## API contract
 
-All endpoints require the session cookie. JSON unless noted. Concurrency on mutable note/clip
-state uses `updated_at`-backed ETags (`If-Match`) to reject stale writes with `409`.
+All endpoints require the session cookie. JSON unless noted. Two distinct guards:
+**optimistic concurrency** on mutable note/clip state uses `updated_at`-backed ETags (`If-Match`)
+and rejects stale writes with `412 Precondition Failed`; **state-gating** (e.g. editing clips
+before `review_ready`, or a clip change that needs acknowledgement) returns `409 Conflict`.
 
 **Session & job creation**
 - `POST /login` `{username, password}` → sets `httpOnly` signed cookie.
@@ -914,6 +1007,9 @@ state uses `updated_at`-backed ETags (`If-Match`) to reject stale writes with `4
   needs_ack`; the client re-sends with `?ack=1` to proceed, which freezes the `auto_pre_change`
   version and sets `clips_dirty`.
 
+> Split and merge renumber `order_index` for the job in a single transaction, preserving the
+> `UNIQUE (job_id, order_index)` constraint.
+
 **Note**
 - `GET /jobs/{id}/note` → `{markdown, include_transcript, is_polished, clips_dirty}`.
 - `PUT /jobs/{id}/note` `{markdown}` → save prose (debounced autosave); sets `is_polished`;
@@ -933,9 +1029,12 @@ state uses `updated_at`-backed ETags (`If-Match`) to reject stale writes with `4
 - `POST /jobs/{id}/export` → assemble ZIP from current state; returns `download_url`. Repeatable;
   sets `status='exported'`.
 
-**Error codes** (non-exhaustive): `unsupported_url`, `video_unavailable`, `transcript_failed`,
-`job_not_review_ready` (clip mutation before drafting completes), `needs_ack` (polished-note
-clip change), `version_not_found`, `stale_write` (ETag mismatch).
+**Error envelope.** Every error response is `{"error": {"code": "...", "message": "..."}}`.
+
+**Error codes** (non-exhaustive): `unsupported_url`, `video_unavailable`, `transcript_failed`
+(processing failures, surfaced as `error` events); `job_not_review_ready` (clip mutation before
+drafting completes → 409); `needs_ack` (polished-note clip change → 409); `stale_write` (ETag
+mismatch → 412); `version_not_found` (→ 404).
 
 ---
 
