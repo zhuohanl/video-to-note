@@ -8,7 +8,7 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from vtn_core.models import Job, JobStage, JobStatus, PromptDepth, SourceType
+from vtn_core.models import Job, JobStage, JobStatus, PromptDepth, SourceType, TranscriptSource
 
 
 @dataclass(frozen=True)
@@ -153,6 +153,15 @@ class JobRepository:
                     raise RuntimeError(f"job not found: {job_id}")
                 return cast(str, row[0])
 
+    def get_job_video_id(self, job_id: UUID) -> UUID:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT video_id FROM jobs WHERE id = %s", (job_id,))
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"job not found: {job_id}")
+                return cast(UUID, row[0])
+
     def claim_canonical_video(
         self,
         *,
@@ -222,6 +231,100 @@ class JobRepository:
                     ),
                 )
                 return placeholder_video_id
+
+    def proxy_blob_path(self, video_id: UUID) -> str | None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT proxy_blob_path FROM videos WHERE id = %s", (video_id,))
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"video not found: {video_id}")
+                return cast(str | None, row[0])
+
+    def set_proxy_ready(self, video_id: UUID, blob_path: str) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE videos
+                    SET proxy_blob_path = %s,
+                        proxy_state = 'ready',
+                        artifacts_updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (blob_path, video_id),
+                )
+
+    def replace_transcript_spans(
+        self,
+        video_id: UUID,
+        spans: list[dict[str, Any]],
+        source: TranscriptSource,
+    ) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM transcript_spans WHERE video_id = %s", (video_id,))
+                cursor.executemany(
+                    """
+                    INSERT INTO transcript_spans (
+                        video_id, start_sec, end_sec, text, speaker, source
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            video_id,
+                            span["start_sec"],
+                            span["end_sec"],
+                            span["text"],
+                            span["speaker"],
+                            source.value,
+                        )
+                        for span in spans
+                    ],
+                )
+                cursor.execute(
+                    """
+                    UPDATE videos
+                    SET transcript_state = 'ready', artifacts_updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (video_id,),
+                )
+
+    def replace_visual_events(self, video_id: UUID, events: list[dict[str, Any]]) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM visual_events WHERE video_id = %s", (video_id,))
+                cursor.executemany(
+                    """
+                    INSERT INTO visual_events (
+                        video_id, at_sec, event_type, confidence,
+                        ocr_text, phash, frame_blob_path
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            video_id,
+                            event["at_sec"],
+                            event["event_type"],
+                            event["confidence"],
+                            event["ocr_text"],
+                            event["phash"],
+                            event["frame_blob_path"],
+                        )
+                        for event in events
+                    ],
+                )
+                cursor.execute(
+                    """
+                    UPDATE videos
+                    SET visual_state = 'ready', artifacts_updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (video_id,),
+                )
 
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:

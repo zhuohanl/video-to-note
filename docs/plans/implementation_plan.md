@@ -289,7 +289,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F11-T1 — event writer + SSE endpoint + replay
 - [x] P2-W1 — worker consumer + stage runner skeleton
 - [x] F2-T1 (fake) — resolving + canonical claim + dedup
-- [ ] F4/F5/F6-T1 (fake) — media + transcript + visual stages
+- [x] F4/F5/F6-T1 (fake) — media + transcript + visual stages
 - [ ] F8-T1 (fake) — segmenting (signals + fusion + refinement)
 - [ ] F9-T1 (fake) — drafting (scene selection + clip summary)
 - [ ] F10-T1 — initial note assembly + baseline version
