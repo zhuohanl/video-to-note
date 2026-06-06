@@ -45,7 +45,12 @@ def _clip_snapshot(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "start_sec": str(clip["start_sec"]),
             "end_sec": str(clip["end_sec"]),
             "title": clip["title"],
+            "summary_seed": clip.get("summary_seed"),
             "summary": clip["summary"],
+            "ai_summary": clip.get("ai_summary"),
+            "classification": clip.get("classification"),
+            "confidence": clip.get("confidence"),
+            "status": clip.get("status", "ready"),
             "scene_at_sec": str(clip["scene_at_sec"]) if clip["scene_at_sec"] is not None else None,
             "scene_blob_path": clip["scene_blob_path"],
             "scene_caption": clip["scene_caption"],
@@ -1196,6 +1201,7 @@ class JobRepository:
         cursor.execute(
             """
             SELECT id, order_index, start_sec, end_sec, title, summary,
+                   ai_summary, summary_seed, classification, confidence, status,
                    scene_at_sec, scene_blob_path, scene_caption, scene_source,
                    needs_regen
             FROM clips
@@ -1420,6 +1426,115 @@ class JobRepository:
                     raise RuntimeError(f"note keep failed: {job_id}")
         return {"status": "ok", "note": self._note_view_from_row(updated)}
 
+    def list_versions(self, job_id: UUID) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT seq, label, kind, created_at, is_baseline
+                    FROM note_versions
+                    WHERE job_id = %s
+                    ORDER BY seq
+                    """,
+                    (job_id,),
+                )
+                return [self._version_view_from_row(row) for row in cursor.fetchall()]
+
+    def create_manual_version(
+        self,
+        job_id: UUID,
+        *,
+        expected_note_etag: str,
+        expected_clips_etag: str,
+        label: str | None,
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                guard = self._check_note_and_clips_etags(
+                    cursor,
+                    job_id,
+                    expected_note_etag=expected_note_etag,
+                    expected_clips_etag=expected_clips_etag,
+                )
+                if guard["status"] != "ok":
+                    return guard
+                version = self._insert_version(
+                    cursor,
+                    job_id,
+                    kind="manual",
+                    note=guard["note"],
+                    label=label,
+                    is_baseline=False,
+                )
+        return {"status": "ok", "version": version}
+
+    def restore_version(
+        self,
+        job_id: UUID,
+        seq: int,
+        *,
+        expected_note_etag: str,
+        expected_clips_etag: str,
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                guard = self._check_note_and_clips_etags(
+                    cursor,
+                    job_id,
+                    expected_note_etag=expected_note_etag,
+                    expected_clips_etag=expected_clips_etag,
+                )
+                if guard["status"] != "ok":
+                    return guard
+                cursor.execute(
+                    """
+                    SELECT seq, note_markdown, note_settings, clips_snapshot
+                    FROM note_versions
+                    WHERE job_id = %s AND seq = %s
+                    """,
+                    (job_id, seq),
+                )
+                target: dict[str, Any] | None = cursor.fetchone()
+                if target is None:
+                    return {"status": "version_not_found"}
+                self._insert_version(
+                    cursor,
+                    job_id,
+                    kind="restore",
+                    note=guard["note"],
+                    label=f"Restored from v{seq}",
+                    is_baseline=False,
+                )
+                self._replace_clips_from_snapshot(cursor, job_id, target["clips_snapshot"])
+                settings = target["note_settings"]
+                cursor.execute(
+                    """
+                    UPDATE notes
+                    SET markdown = %s,
+                        include_summary = %s,
+                        include_transcript = %s,
+                        is_polished = %s,
+                        clips_dirty = false,
+                        built_from_version = %s,
+                        updated_at = now()
+                    WHERE job_id = %s
+                    RETURNING markdown, include_summary, include_transcript,
+                              is_polished, clips_dirty, updated_at
+                    """,
+                    (
+                        target["note_markdown"],
+                        settings["include_summary"],
+                        settings["include_transcript"],
+                        settings["is_polished"],
+                        target["seq"],
+                        job_id,
+                    ),
+                )
+                note: dict[str, Any] | None = cursor.fetchone()
+                if note is None:
+                    raise RuntimeError(f"note restore failed: {job_id}")
+        return {"status": "ok", "note": self._note_view_from_row(note)}
+
     def _locked_note_with_etag(self, cursor: Any, job_id: UUID) -> dict[str, Any]:
         cursor.execute(
             """
@@ -1445,6 +1560,132 @@ class JobRepository:
             "clips_dirty": row["clips_dirty"],
             "etag": _etag(row["updated_at"]),
         }
+
+    def _version_view_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "seq": row["seq"],
+            "label": row["label"],
+            "kind": row["kind"],
+            "created_at": row["created_at"],
+            "baseline": row["is_baseline"],
+        }
+
+    def _check_note_and_clips_etags(
+        self,
+        cursor: Any,
+        job_id: UUID,
+        *,
+        expected_note_etag: str,
+        expected_clips_etag: str,
+    ) -> dict[str, Any]:
+        note = self._locked_note_with_etag(cursor, job_id)
+        if _etag(note["updated_at"]) != expected_note_etag:
+            return {"status": "stale_write"}
+        cursor.execute(
+            """
+            SELECT updated_at
+            FROM clips
+            WHERE job_id = %s
+            ORDER BY order_index
+            FOR UPDATE
+            """,
+            (job_id,),
+        )
+        rows = list(cursor.fetchall())
+        collection_etag = max((_etag(row["updated_at"]) for row in rows), default='""')
+        if collection_etag != expected_clips_etag:
+            return {"status": "stale_write"}
+        return {"status": "ok", "note": note}
+
+    def _insert_version(
+        self,
+        cursor: Any,
+        job_id: UUID,
+        *,
+        kind: str,
+        note: dict[str, Any],
+        label: str | None,
+        is_baseline: bool,
+    ) -> dict[str, Any]:
+        settings = {
+            "is_polished": note["is_polished"],
+            "include_summary": note["include_summary"],
+            "include_transcript": note["include_transcript"],
+        }
+        cursor.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM note_versions WHERE job_id = %s",
+            (job_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise RuntimeError("version sequence query returned no row")
+        seq = row["seq"]
+        cursor.execute(
+            """
+            INSERT INTO note_versions (
+                job_id, seq, label, kind, is_baseline,
+                note_markdown, note_settings, clips_snapshot
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING seq, label, kind, created_at, is_baseline
+            """,
+            (
+                job_id,
+                seq,
+                label or f"v{seq}",
+                kind,
+                is_baseline,
+                note["markdown"],
+                Jsonb(settings),
+                Jsonb(_clip_snapshot(self._drafted_clip_rows(cursor, job_id))),
+            ),
+        )
+        inserted: dict[str, Any] | None = cursor.fetchone()
+        if inserted is None:
+            raise RuntimeError("version insert returned no row")
+        return self._version_view_from_row(inserted)
+
+    def _replace_clips_from_snapshot(
+        self,
+        cursor: Any,
+        job_id: UUID,
+        clips_snapshot: list[dict[str, Any]],
+    ) -> None:
+        cursor.execute("DELETE FROM clips WHERE job_id = %s", (job_id,))
+        for clip in clips_snapshot:
+            cursor.execute(
+                """
+                INSERT INTO clips (
+                    id, job_id, order_index, start_sec, end_sec, title, summary_seed,
+                    summary, ai_summary, classification, confidence, status,
+                    scene_at_sec, scene_blob_path, scene_caption, scene_source,
+                    needs_regen, updated_at
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, now()
+                )
+                """,
+                (
+                    clip["id"],
+                    job_id,
+                    clip["order_index"],
+                    clip["start_sec"],
+                    clip["end_sec"],
+                    clip["title"],
+                    clip.get("summary_seed"),
+                    clip["summary"],
+                    clip.get("ai_summary"),
+                    clip.get("classification"),
+                    clip.get("confidence"),
+                    clip.get("status", "ready"),
+                    clip["scene_at_sec"],
+                    clip["scene_blob_path"],
+                    clip["scene_caption"],
+                    clip["scene_source"],
+                    clip["needs_regen"],
+                ),
+            )
 
     def _coalesce_auto_edit_version(
         self,

@@ -314,7 +314,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F15-T1 — regenerate
 - [x] F16-T1 — note autosave + content-selection flags
 - [x] F17-T1 — rebuild / keep + flag state machine
-- [ ] F18-T1 — versioning (save / restore)
+- [x] F18-T1 — versioning (save / restore)
 - [ ] F19-T1 — export ZIP + projections
 - [ ] P4-E2 — `[TEST-E2E-MOCK]` full edit→review→export round-trip
 - [ ] **P4 phase gate** — mocked e2e (P2-E1+P4-E2) green; coverage; reviewer pass
