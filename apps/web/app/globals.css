@@ -306,6 +306,93 @@ h1 {
   background: #f1f5f9;
 }
 
+.inspector-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.inspector-panel header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.inspector-panel h2,
+.inspector-panel p {
+  margin: 0;
+}
+
+.inspector-panel header span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #854d0e;
+  background: #fef3c7;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.inspector-panel label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.inspector-panel input,
+.inspector-panel textarea {
+  width: 100%;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.inspector-panel textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.inspector-actions button,
+.modal-panel button {
+  min-height: 38px;
+  border: 1px solid #0f766e;
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #0f766e;
+  background: #ffffff;
+  font: inherit;
+  font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.modal-panel {
+  width: min(100%, 360px);
+  display: grid;
+  gap: 12px;
+  border-radius: 8px;
+  padding: 20px;
+  background: #ffffff;
+}
+
 @media (max-width: 900px) {
   .timeline-grid {
     grid-template-columns: 1fr;

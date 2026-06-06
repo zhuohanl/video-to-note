@@ -43,6 +43,34 @@ export type CreateJobResponse = {
   cost_estimate: CostEstimate;
 };
 
+export type ClipView = {
+  id: string;
+  order_index: number;
+  start_sec: string;
+  end_sec: string;
+  title: string | null;
+  summary: string | null;
+  scene_at_sec: string | null;
+  scene_url: string | null;
+  scene_source: string;
+  needs_regen: boolean;
+  etag: string;
+};
+
+export type ClipsView = {
+  clips: ClipView[];
+  collection_etag: string;
+};
+
+export type NoteView = {
+  markdown: string;
+  include_summary: boolean;
+  include_transcript: boolean;
+  is_polished: boolean;
+  clips_dirty: boolean;
+  etag: string;
+};
+
 export async function login(username: string, password: string): Promise<void> {
   const response = await fetch("/login", {
     body: JSON.stringify({ username, password }),
@@ -79,6 +107,76 @@ export async function createJob(input: CreateJobInput): Promise<CreateJobRespons
   }
 
   return (await response.json()) as CreateJobResponse;
+}
+
+export async function getClips(jobId: string): Promise<ClipsView> {
+  return requestJson<ClipsView>(`/jobs/${jobId}/clips`);
+}
+
+export async function getNote(jobId: string): Promise<NoteView> {
+  return requestJson<NoteView>(`/jobs/${jobId}/note`);
+}
+
+export async function patchClip(
+  clipId: string,
+  etag: string,
+  body: { title?: string; summary?: string | null },
+  ack = false,
+): Promise<ClipView> {
+  return requestJson<ClipView>(`/clips/${clipId}${ack ? "?ack=1" : ""}`, {
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json", "if-match": etag },
+    method: "PATCH",
+  });
+}
+
+export async function splitClip(
+  clipId: string,
+  collectionEtag: string,
+  atSec: string,
+  ack = false,
+): Promise<ClipsView> {
+  return requestJson<ClipsView>(`/clips/${clipId}/split${ack ? "?ack=1" : ""}`, {
+    body: JSON.stringify({ at_sec: atSec }),
+    headers: { "content-type": "application/json", "if-match": collectionEtag },
+    method: "POST",
+  });
+}
+
+export async function mergeClips(clipIds: string[], collectionEtag: string): Promise<ClipsView> {
+  return requestJson<ClipsView>("/clips/merge", {
+    body: JSON.stringify({ clip_ids: clipIds }),
+    headers: { "content-type": "application/json", "if-match": collectionEtag },
+    method: "POST",
+  });
+}
+
+export async function regenerateClip(clipId: string, etag: string, ack = false): Promise<ClipView> {
+  return requestJson<ClipView>(`/clips/${clipId}/regenerate${ack ? "?ack=1" : ""}`, {
+    headers: { "if-match": etag },
+    method: "POST",
+  });
+}
+
+export async function setScene(clipId: string, etag: string, atSec: string): Promise<object> {
+  return requestJson<object>(`/clips/${clipId}/scene`, {
+    body: JSON.stringify({ at_sec: atSec }),
+    headers: { "content-type": "application/json", "if-match": etag },
+    method: "POST",
+  });
+}
+
+async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, { credentials: "include", ...init });
+  if (!response.ok) {
+    const envelope = await readEnvelope(response);
+    throw new ApiError(
+      response.status,
+      envelope.error?.code ?? "request_failed",
+      envelope.error?.message ?? "Request failed",
+    );
+  }
+  return (await response.json()) as T;
 }
 
 async function readEnvelope(response: Response): Promise<ApiErrorEnvelope> {
