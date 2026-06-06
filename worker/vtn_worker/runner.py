@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
-from vtn_core.models import JobStage
+from vtn_core.models import JobStage, JobStatus
 from vtn_storage.repos import JobRepository
 
 StageFn = Callable[["StageContext"], Awaitable[None]]
@@ -78,6 +78,12 @@ async def run(
     repo: JobRepository,
     stages: StageHandlers | None = None,
 ) -> None:
+    job = repo.get_job(job_id)
+    if job is None:
+        raise PipelineError("job_not_found", "Job was not found", "queued")
+    if job.status != JobStatus.active:
+        return
+
     handlers = stages or StageHandlers()
     await _run_linear_stage(repo, job_id, attempt, JobStage.resolving, handlers.resolving)
     await _run_linear_stage(

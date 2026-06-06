@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator
 from uuid import UUID
 
 import bcrypt
 import pytest
 from fastapi.testclient import TestClient
-from vtn_api.auth import sign_session
 from vtn_api.main import app
 from vtn_core.invariants import (
     assert_clips_contiguous_ordered,
@@ -34,8 +34,25 @@ def _hash(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 
-def _headers() -> dict[str, str]:
-    return {"cookie": f"vtn_session={sign_session('local')}"}
+def _read_sse_frames(lines: Iterator[str], count: int) -> list[dict[str, object]]:
+    frames: list[dict[str, object]] = []
+    current: dict[str, object] = {}
+    for line in lines:
+        if not line:
+            if current:
+                frames.append(current)
+                current = {}
+                if len(frames) == count:
+                    return frames
+            continue
+        field, value = line.split(": ", 1)
+        if field == "id":
+            current["id"] = int(value)
+        elif field == "event":
+            current["event"] = value
+        elif field == "data":
+            current["data"] = value
+    return frames
 
 
 @pytest.mark.asyncio
@@ -48,14 +65,13 @@ async def test_submit_to_review_ready_with_fake_worker(monkeypatch) -> None:
     _alembic("upgrade", "head")
     queue = InMemoryQueue()
     app.state.queue = queue
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
 
     login = client.post("/login", json={"username": "local", "password": "secret"})
     assert login.status_code == 200
 
     submitted = client.post(
         "/jobs",
-        headers=_headers(),
         json={"url": "https://www.youtube.com/watch?v=demo", "depth": "balanced"},
     )
     assert submitted.status_code == 202
@@ -63,9 +79,13 @@ async def test_submit_to_review_ready_with_fake_worker(monkeypatch) -> None:
 
     assert await process_next(queue, repo=JobRepository(_database_url()))
 
-    job = client.get(f"/jobs/{job_id}", headers=_headers()).json()
-    clips = client.get(f"/jobs/{job_id}/clips", headers=_headers()).json()["clips"]
-    note = client.get(f"/jobs/{job_id}/note", headers=_headers()).json()
+    with client.stream("GET", f"/jobs/{job_id}/events?replay_only=true") as response:
+        assert response.status_code == 200
+        sse_frames = _read_sse_frames(response.iter_lines(), 12)
+
+    job = client.get(f"/jobs/{job_id}").json()
+    clips = client.get(f"/jobs/{job_id}/clips").json()["clips"]
+    note = client.get(f"/jobs/{job_id}/note").json()
 
     assert job["status"] == "review_ready"
     assert_clips_contiguous_ordered(clips)
@@ -74,6 +94,7 @@ async def test_submit_to_review_ready_with_fake_worker(monkeypatch) -> None:
     assert_note_content_flags(note)
 
     events = JobRepository(_database_url()).list_events_after(job_id, 0)
+    assert [frame["event"] for frame in sse_frames] == [event["type"] for event in events]
     stage_sequence = [
         event["payload"]["stage"] for event in events if event["type"] == "stage"
     ]

@@ -77,6 +77,44 @@ async def test_runner_reaches_review_ready_and_keeps_parallel_stage_owner() -> N
 
 
 @pytest.mark.asyncio
+async def test_runner_skips_duplicate_delivery_after_review_ready() -> None:
+    _alembic("downgrade", "base")
+    _alembic("upgrade", "head")
+    repo = JobRepository(_database_url())
+    job_id = _create_job(repo)
+    calls: list[str] = []
+
+    async def record(context: StageContext) -> None:
+        calls.append(context.stage)
+
+    stages = StageHandlers(
+        resolving=record,
+        acquiring_media=record,
+        transcribe=record,
+        index_visual=record,
+        extract_style=record,
+        segmenting=record,
+        drafting=record,
+    )
+
+    await run(job_id, attempt=0, repo=repo, stages=stages)
+    first_events = repo.list_events_after(job_id, 0)
+
+    await run(job_id, attempt=1, repo=repo, stages=stages)
+
+    assert calls == [
+        "resolving",
+        "acquiring_media",
+        "transcribe",
+        "index visual",
+        "extract style",
+        "segmenting",
+        "drafting",
+    ]
+    assert repo.list_events_after(job_id, 0) == first_events
+
+
+@pytest.mark.asyncio
 async def test_worker_process_next_records_failure_event_and_completes_message() -> None:
     _alembic("downgrade", "base")
     _alembic("upgrade", "head")

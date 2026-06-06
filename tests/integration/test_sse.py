@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -81,6 +81,59 @@ async def _collect_replay(job_id: UUID, last_event_id: int, count: int) -> list[
     finally:
         await stream.aclose()
     return frames
+
+
+@pytest.mark.asyncio
+async def test_live_sse_replays_after_listen_to_close_subscribe_gap(monkeypatch) -> None:
+    job_id = uuid4()
+
+    class GapRepo:
+        available = False
+
+        def list_events_after(self, received_job_id: UUID, last_event_id: int):
+            assert received_job_id == job_id
+            if self.available and last_event_id < 1:
+                return [
+                    {
+                        "id": 1,
+                        "job_id": job_id,
+                        "type": "done",
+                        "payload": {},
+                    }
+                ]
+            return []
+
+    class GapConnection:
+        async def add_listener(self, channel, listener):
+            del channel, listener
+            repo.available = True
+
+        async def remove_listener(self, channel, listener):
+            del channel, listener
+
+        async def close(self):
+            return None
+
+    async def connect(database_url: str):
+        assert database_url
+        return GapConnection()
+
+    async def wait_for(awaitable, timeout: int):
+        del awaitable, timeout
+        raise TimeoutError
+
+    repo = GapRepo()
+    monkeypatch.setenv("DATABASE_URL", _database_url())
+    monkeypatch.setattr("vtn_api.sse.asyncpg.connect", connect)
+    monkeypatch.setattr("vtn_api.sse.asyncio.wait_for", wait_for)
+
+    stream = _event_stream(repo, job_id, last_event_id=0)
+    try:
+        frame = await anext(stream)
+    finally:
+        await stream.aclose()
+
+    assert _parse_sse_frame(frame) == {"id": 1, "event": "done", "data": {}}
 
 
 @pytest.mark.asyncio

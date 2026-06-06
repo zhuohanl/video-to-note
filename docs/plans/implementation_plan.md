@@ -295,7 +295,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F10-T1 — initial note assembly + baseline version
 - [x] P2-A1 — read endpoints (`GET /clips`, `GET /note`)
 - [x] P2-E1 — `[TEST-E2E-MOCK]` submit → review_ready → GET note
-- [ ] **P2 phase gate** — mocked e2e green; invariants pass; coverage; reviewer pass
+- [x] **P2 phase gate** — mocked e2e green; invariants pass; coverage; reviewer pass
 
 ### P3 — Real media + AI + style + cost
 - [ ] F3-T1 — per-artifact CAS claim/wait/recover

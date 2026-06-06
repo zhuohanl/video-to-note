@@ -20,11 +20,15 @@ async def _event_stream(
     repo: JobRepository,
     job_id: UUID,
     last_event_id: int,
+    *,
+    replay_only: bool = False,
 ) -> AsyncIterator[str]:
     current_id = last_event_id
-    for row in repo.list_events_after(job_id, current_id):
-        current_id = row["id"]
-        yield to_sse(JobEventRow.model_validate(row))
+    if replay_only:
+        for row in repo.list_events_after(job_id, current_id):
+            current_id = row["id"]
+            yield to_sse(JobEventRow.model_validate(row))
+        return
 
     queue: asyncio.Queue[int] = asyncio.Queue()
     connection = await asyncpg.connect(database_url())
@@ -41,10 +45,17 @@ async def _event_stream(
 
     await connection.add_listener(channel, listener)
     try:
+        for row in repo.list_events_after(job_id, current_id):
+            current_id = row["id"]
+            yield to_sse(JobEventRow.model_validate(row))
+
         while True:
             try:
                 await asyncio.wait_for(queue.get(), timeout=15)
             except TimeoutError:
+                for row in repo.list_events_after(job_id, current_id):
+                    current_id = row["id"]
+                    yield to_sse(JobEventRow.model_validate(row))
                 yield ": heartbeat\n\n"
                 continue
 
@@ -59,11 +70,12 @@ async def _event_stream(
 @router.get("/jobs/{job_id}/events")
 def job_events(
     job_id: UUID,
+    replay_only: bool = False,
     last_event_id: int | None = Header(default=None, alias="Last-Event-ID"),
     session: str = Depends(require_session),
 ) -> StreamingResponse:
     del session
     return StreamingResponse(
-        _event_stream(job_repository(), job_id, last_event_id or 0),
+        _event_stream(job_repository(), job_id, last_event_id or 0, replay_only=replay_only),
         media_type="text/event-stream",
     )
