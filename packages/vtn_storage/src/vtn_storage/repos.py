@@ -1001,6 +1001,64 @@ class JobRepository:
 
         return {"status": "ok", "clips": self.clips_view(context["job_id"])}
 
+    def regenerate_clip(
+        self,
+        clip_id: UUID,
+        *,
+        expected_etag: str,
+        ack: bool = False,
+        summary_generator: Callable[[dict[str, Any]], str],
+        assemble_markdown: Callable[[list[dict[str, Any]]], str],
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT c.id, c.job_id, c.updated_at, c.title, c.summary_seed,
+                           j.status
+                    FROM clips c
+                    JOIN jobs j ON j.id = c.job_id
+                    WHERE c.id = %s
+                    FOR UPDATE OF c, j
+                    """,
+                    (clip_id,),
+                )
+                clip: dict[str, Any] | None = cursor.fetchone()
+                if clip is None:
+                    raise RuntimeError(f"clip not found: {clip_id}")
+                if clip["status"] not in {JobStatus.review_ready.value, JobStatus.exported.value}:
+                    return {"status": "job_not_review_ready"}
+                current_etag = _etag(clip["updated_at"])
+                if current_etag != expected_etag:
+                    return {"status": "stale_write", "etag": current_etag}
+                note = self._locked_note(cursor, clip["job_id"])
+                if note["is_polished"] and not ack:
+                    return {"status": "needs_ack"}
+                if note["is_polished"]:
+                    self._freeze_version(cursor, clip["job_id"], "auto_pre_change", note)
+
+                summary = summary_generator(clip)
+                cursor.execute(
+                    """
+                    UPDATE clips
+                    SET summary = %s,
+                        ai_summary = %s,
+                        needs_regen = false,
+                        updated_at = now()
+                    WHERE id = %s
+                    RETURNING id, job_id, order_index, start_sec, end_sec, title, summary,
+                              scene_caption, status, scene_at_sec, scene_blob_path,
+                              scene_source, needs_regen, updated_at
+                    """,
+                    (summary, summary, clip_id),
+                )
+                updated: dict[str, Any] | None = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"clip update failed: {clip_id}")
+                self._complete_clip_mutation(cursor, clip["job_id"], note, assemble_markdown)
+
+        return {"status": "ok", "clip": self._clip_view_from_row(updated)}
+
     def _structural_context_for_clip(self, cursor: Any, clip_id: UUID) -> dict[str, Any]:
         cursor.execute(
             """

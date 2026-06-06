@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header
 from vtn_notes.assemble import assemble_markdown
 from vtn_notes.structural import merge_clip_values, split_clip_values
+from vtn_notes.summary import regenerate_summary
 from vtn_storage.repos import JobRepository
 
 from vtn_api.auth import require_session
@@ -58,6 +59,37 @@ def patch_clip(
             raise ApiError("needs_ack", "Clip change needs acknowledgement", 409)
         case _:
             raise RuntimeError(f"unknown patch result: {result['status']}")
+
+
+@router.post("/clips/{clip_id}/regenerate", response_model=ClipView)
+def regenerate_clip(
+    clip_id: UUID,
+    session: SessionDep,
+    repo: RepoDep,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    ack: bool = False,
+) -> ClipView:
+    del session
+    if if_match is None:
+        raise ApiError("stale_write", "If-Match is required", 412)
+    result = repo.regenerate_clip(
+        clip_id,
+        expected_etag=if_match,
+        ack=ack,
+        summary_generator=regenerate_summary,
+        assemble_markdown=assemble_markdown,
+    )
+    match result["status"]:
+        case "ok":
+            return ClipView.model_validate(result["clip"])
+        case "job_not_review_ready":
+            raise ApiError("job_not_review_ready", "Job is not review-ready", 409)
+        case "stale_write":
+            raise ApiError("stale_write", "Clip ETag is stale", 412)
+        case "needs_ack":
+            raise ApiError("needs_ack", "Clip change needs acknowledgement", 409)
+        case _:
+            raise RuntimeError(f"unknown regenerate result: {result['status']}")
 
 
 @router.post("/clips/{clip_id}/split", response_model=ClipsView)
