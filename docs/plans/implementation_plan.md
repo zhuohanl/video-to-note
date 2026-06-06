@@ -330,7 +330,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] **P5 phase gate** — component tests + Playwright green; coverage; reviewer pass
 
 ### P6 — Infra, CI/CD, eval, real queue, docs
-- [ ] F26-T1 — Bicep modules + `azure.yaml` for `azd up`/`down`
+- [x] F26-T1 — Bicep modules + `azure.yaml` for `azd up`/`down`
 - [ ] F26-T2 — one-command lifecycle (`azd up` working env / `azd down` teardown)
 - [ ] F26-T3 — `[TEST-E2E-REAL]` deployed API journey (opt-in)
 - [ ] F26-T4 — `[TEST-E2E-REAL]` deployed browser journey (opt-in)

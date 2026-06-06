@@ -1,0 +1,15 @@
+.git
+.agents
+.claude
+.mypy_cache
+.next
+.pytest_cache
+.ruff_cache
+.venv
+apps/web/.next
+apps/web/coverage
+apps/web/test-results
+node_modules
+**/__pycache__
+**/*.pyc
+docs/prompt
