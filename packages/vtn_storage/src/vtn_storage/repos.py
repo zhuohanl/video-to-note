@@ -861,6 +861,274 @@ class JobRepository:
 
         return {"status": "ok", "clip": self._clip_view_from_row(updated)}
 
+    def split_clip(
+        self,
+        clip_id: UUID,
+        *,
+        expected_collection_etag: str,
+        at_sec: Decimal,
+        ack: bool = False,
+        split_values: Callable[[dict[str, Any], Decimal], tuple[dict[str, Any], dict[str, Any]]],
+        assemble_markdown: Callable[[list[dict[str, Any]]], str],
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                context = self._structural_context_for_clip(cursor, clip_id)
+                if context["status"] != "ok":
+                    return context
+                source = next(clip for clip in context["clips"] if clip["id"] == clip_id)
+                if not (source["start_sec"] < at_sec < source["end_sec"]):
+                    return {
+                        "status": "validation_error",
+                        "message": "Split point must be inside clip",
+                    }
+                if context["collection_etag"] != expected_collection_etag:
+                    return {"status": "stale_write", "etag": context["collection_etag"]}
+                note = self._locked_note(cursor, context["job_id"])
+                if note["is_polished"] and not ack:
+                    return {"status": "needs_ack"}
+                if note["is_polished"]:
+                    self._freeze_version(cursor, context["job_id"], "auto_pre_change", note)
+
+                first, second = split_values(source, at_sec)
+                cursor.execute(
+                    """
+                    UPDATE clips
+                    SET order_index = order_index + 1000
+                    WHERE job_id = %s AND order_index > %s
+                    """,
+                    (context["job_id"], source["order_index"]),
+                )
+                self._update_clip_placeholder(cursor, clip_id, first)
+                cursor.execute(
+                    """
+                    INSERT INTO clips (
+                        job_id, order_index, start_sec, end_sec, title, summary_seed,
+                        summary, ai_summary, classification, confidence, status,
+                        scene_at_sec, scene_blob_path, scene_caption, scene_source,
+                        needs_regen
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true
+                    )
+                    """,
+                    (
+                        context["job_id"],
+                        source["order_index"] + 1,
+                        second["start_sec"],
+                        second["end_sec"],
+                        second["title"],
+                        second["summary_seed"],
+                        second["summary"],
+                        second["ai_summary"],
+                        second["classification"],
+                        second["confidence"],
+                        second["status"],
+                        second["scene_at_sec"],
+                        second["scene_blob_path"],
+                        second["scene_caption"],
+                        second["scene_source"],
+                    ),
+                )
+                cursor.execute(
+                    """
+                    UPDATE clips
+                    SET order_index = order_index - 999,
+                        updated_at = now()
+                    WHERE job_id = %s AND order_index >= 1000
+                    """,
+                    (context["job_id"],),
+                )
+                self._complete_clip_mutation(cursor, context["job_id"], note, assemble_markdown)
+
+        return {"status": "ok", "clips": self.clips_view(context["job_id"])}
+
+    def merge_clips(
+        self,
+        clip_ids: list[UUID],
+        *,
+        expected_collection_etag: str,
+        ack: bool = False,
+        merge_values: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        assemble_markdown: Callable[[list[dict[str, Any]]], str],
+    ) -> dict[str, Any]:
+        if not clip_ids:
+            return {"status": "validation_error", "message": "clip_ids is required"}
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                context = self._structural_context_for_clip(cursor, clip_ids[0])
+                if context["status"] != "ok":
+                    return context
+                by_id = {clip["id"]: clip for clip in context["clips"]}
+                if any(clip_id not in by_id for clip_id in clip_ids):
+                    return {"status": "validation_error", "message": "All clips must be in one job"}
+                selected = sorted(
+                    [by_id[clip_id] for clip_id in clip_ids],
+                    key=lambda clip: clip["order_index"],
+                )
+                expected_indexes = list(
+                    range(selected[0]["order_index"], selected[0]["order_index"] + len(selected))
+                )
+                if [clip["order_index"] for clip in selected] != expected_indexes:
+                    return {
+                        "status": "validation_error",
+                        "message": "Merge clips must be consecutive",
+                    }
+                if context["collection_etag"] != expected_collection_etag:
+                    return {"status": "stale_write", "etag": context["collection_etag"]}
+                note = self._locked_note(cursor, context["job_id"])
+                if note["is_polished"] and not ack:
+                    return {"status": "needs_ack"}
+                if note["is_polished"]:
+                    self._freeze_version(cursor, context["job_id"], "auto_pre_change", note)
+
+                merged = merge_values(selected)
+                first_id = selected[0]["id"]
+                self._update_clip_placeholder(cursor, first_id, merged)
+                delete_ids = [clip["id"] for clip in selected[1:]]
+                if delete_ids:
+                    cursor.execute("DELETE FROM clips WHERE id = ANY(%s)", (delete_ids,))
+                cursor.execute(
+                    """
+                    UPDATE clips
+                    SET order_index = order_index - %s,
+                        updated_at = now()
+                    WHERE job_id = %s AND order_index > %s
+                    """,
+                    (len(selected) - 1, context["job_id"], selected[-1]["order_index"]),
+                )
+                self._complete_clip_mutation(cursor, context["job_id"], note, assemble_markdown)
+
+        return {"status": "ok", "clips": self.clips_view(context["job_id"])}
+
+    def _structural_context_for_clip(self, cursor: Any, clip_id: UUID) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT c.job_id, j.status
+            FROM clips c
+            JOIN jobs j ON j.id = c.job_id
+            WHERE c.id = %s
+            FOR UPDATE OF j
+            """,
+            (clip_id,),
+        )
+        row: dict[str, Any] | None = cursor.fetchone()
+        if row is None:
+            raise RuntimeError(f"clip not found: {clip_id}")
+        if row["status"] not in {JobStatus.review_ready.value, JobStatus.exported.value}:
+            return {"status": "job_not_review_ready"}
+        cursor.execute(
+            """
+            SELECT id, job_id, order_index, start_sec, end_sec, title, summary_seed,
+                   summary, ai_summary, classification, confidence, status,
+                   scene_at_sec, scene_blob_path, scene_caption, scene_source,
+                   needs_regen, updated_at
+            FROM clips
+            WHERE job_id = %s
+            ORDER BY order_index
+            FOR UPDATE
+            """,
+            (row["job_id"],),
+        )
+        clips = list(cursor.fetchall())
+        etags = [_etag(clip["updated_at"]) for clip in clips]
+        return {
+            "status": "ok",
+            "job_id": row["job_id"],
+            "clips": clips,
+            "collection_etag": max(etags) if etags else '""',
+        }
+
+    def _locked_note(self, cursor: Any, job_id: UUID) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT markdown, include_summary, include_transcript, is_polished, clips_dirty
+            FROM notes
+            WHERE job_id = %s
+            FOR UPDATE
+            """,
+            (job_id,),
+        )
+        note: dict[str, Any] | None = cursor.fetchone()
+        if note is None:
+            raise RuntimeError(f"note not found for job: {job_id}")
+        return note
+
+    def _update_clip_placeholder(
+        self,
+        cursor: Any,
+        clip_id: UUID,
+        values: dict[str, Any],
+    ) -> None:
+        cursor.execute(
+            """
+            UPDATE clips
+            SET start_sec = %s,
+                end_sec = %s,
+                title = %s,
+                summary_seed = %s,
+                summary = %s,
+                ai_summary = %s,
+                classification = %s,
+                confidence = %s,
+                status = %s,
+                scene_at_sec = %s,
+                scene_blob_path = %s,
+                scene_caption = %s,
+                scene_source = %s,
+                needs_regen = true,
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                values["start_sec"],
+                values["end_sec"],
+                values["title"],
+                values["summary_seed"],
+                values["summary"],
+                values["ai_summary"],
+                values["classification"],
+                values["confidence"],
+                values["status"],
+                values["scene_at_sec"],
+                values["scene_blob_path"],
+                values["scene_caption"],
+                values["scene_source"],
+                clip_id,
+            ),
+        )
+
+    def _complete_clip_mutation(
+        self,
+        cursor: Any,
+        job_id: UUID,
+        note: dict[str, Any],
+        assemble_markdown: Callable[[list[dict[str, Any]]], str],
+    ) -> None:
+        if note["is_polished"]:
+            cursor.execute(
+                """
+                UPDATE notes
+                SET clips_dirty = true,
+                    updated_at = now()
+                WHERE job_id = %s
+                """,
+                (job_id,),
+            )
+            return
+        rows = self._drafted_clip_rows(cursor, job_id)
+        cursor.execute(
+            """
+            UPDATE notes
+            SET markdown = %s,
+                is_polished = false,
+                clips_dirty = false,
+                updated_at = now()
+            WHERE job_id = %s
+            """,
+            (assemble_markdown(rows), job_id),
+        )
+
     def drafted_clip_rows(self, job_id: UUID) -> list[dict[str, Any]]:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:

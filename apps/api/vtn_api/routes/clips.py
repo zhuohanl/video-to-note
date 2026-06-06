@@ -5,12 +5,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header
 from vtn_notes.assemble import assemble_markdown
+from vtn_notes.structural import merge_clip_values, split_clip_values
 from vtn_storage.repos import JobRepository
 
 from vtn_api.auth import require_session
 from vtn_api.deps import job_repository
 from vtn_api.errors import ApiError
-from vtn_api.schemas import ClipsView, ClipView, PatchClip
+from vtn_api.schemas import ClipsView, ClipView, MergeBody, PatchClip, SplitBody
 
 router = APIRouter()
 SessionDep = Annotated[str, Depends(require_session)]
@@ -57,3 +58,64 @@ def patch_clip(
             raise ApiError("needs_ack", "Clip change needs acknowledgement", 409)
         case _:
             raise RuntimeError(f"unknown patch result: {result['status']}")
+
+
+@router.post("/clips/{clip_id}/split", response_model=ClipsView)
+def split_clip(
+    clip_id: UUID,
+    body: SplitBody,
+    session: SessionDep,
+    repo: RepoDep,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    ack: bool = False,
+) -> ClipsView:
+    del session
+    if if_match is None:
+        raise ApiError("stale_write", "If-Match is required", 412)
+    result = repo.split_clip(
+        clip_id,
+        expected_collection_etag=if_match,
+        at_sec=body.at_sec,
+        ack=ack,
+        split_values=split_clip_values,
+        assemble_markdown=assemble_markdown,
+    )
+    return _structural_response(result)
+
+
+@router.post("/clips/merge", response_model=ClipsView)
+def merge_clips(
+    body: MergeBody,
+    session: SessionDep,
+    repo: RepoDep,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    ack: bool = False,
+) -> ClipsView:
+    del session
+    if if_match is None:
+        raise ApiError("stale_write", "If-Match is required", 412)
+    result = repo.merge_clips(
+        body.clip_ids,
+        expected_collection_etag=if_match,
+        ack=ack,
+        merge_values=merge_clip_values,
+        assemble_markdown=assemble_markdown,
+    )
+    return _structural_response(result)
+
+
+def _structural_response(result: dict[str, object]) -> ClipsView:
+    match result["status"]:
+        case "ok":
+            return ClipsView.model_validate(result["clips"])
+        case "job_not_review_ready":
+            raise ApiError("job_not_review_ready", "Job is not review-ready", 409)
+        case "stale_write":
+            raise ApiError("stale_write", "Clip collection ETag is stale", 412)
+        case "needs_ack":
+            raise ApiError("needs_ack", "Clip change needs acknowledgement", 409)
+        case "validation_error":
+            message = str(result.get("message", "Invalid clip structure"))
+            raise ApiError("validation_error", message, 422)
+        case _:
+            raise RuntimeError(f"unknown structural result: {result['status']}")
