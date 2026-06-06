@@ -18,3 +18,4 @@ dist/
 build/
 .env
 .env.local
+.spike-out/

@@ -263,15 +263,15 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
 - [x] P0-T3 — fixtures + `fake` profile skeleton
 - [ ] P0-S0 — SPIKE: Azure credentials / liveness (gates all real-infra)
-- [ ] P0-S1 — SPIKE: yt-dlp
-- [ ] P0-S2 — SPIKE: ffmpeg
-- [ ] P0-S3 — SPIKE: pHash
+- [x] P0-S1 — SPIKE: yt-dlp
+- [x] P0-S2 — SPIKE: ffmpeg
+- [x] P0-S3 — SPIKE: pHash
 - [ ] P0-S4 — SPIKE: Azure Speech ASR
 - [ ] P0-S5 — SPIKE: Azure Vision / Document Intelligence OCR
 - [ ] P0-S6 — SPIKE: Azure OpenAI chat (Foundry)
 - [ ] P0-S7 — SPIKE: Azure OpenAI embeddings
 - [ ] P0-S8 — SPIKE: Azure Service Bus
-- [ ] P0-S9 — SPIKE: Postgres LISTEN/NOTIFY + advisory lock
+- [x] P0-S9 — SPIKE: Postgres LISTEN/NOTIFY + advisory lock
 - [ ] **P0 phase gate** — spikes green; smoke tests green; reviewer pass
 
 ### P1 — Contracts as code
