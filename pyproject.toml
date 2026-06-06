@@ -21,6 +21,7 @@ vtn-visual = { workspace = true }
 [dependency-groups]
 dev = [
     "fastapi>=0.115.0",
+    "azure-identity>=1.25.0",
     "httpx>=0.28.0",
     "mypy>=1.18.0",
     "psycopg[binary]>=3.2.0",
