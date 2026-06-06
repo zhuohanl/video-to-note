@@ -5,12 +5,20 @@
 
 ## Source of truth (priority order)
 
-On conflict the order is **empirical spike > spec > this plan**. A spike overrides the spec; then
-update the spec/contract to match — never carry both.
+On conflict the order is **design (spec) > this plan > spike observations**. The design document is
+authoritative for all product behaviour and contracts; the plan must conform, never the reverse.
+Spikes are empirical inputs that may refine *implementation details the design leaves open* (exact
+API flags, SDK quirks, observed limits) — they do **not** override the design. If a spike's findings
+**contradict** required design behaviour or a contract, that is a **blocker**: stop, record it in
+the spike writeup, and raise an explicit design-review decision before implementing. Do not silently
+edit the spec to match the spike.
 
-1. **Empirical spikes** — `spikes/*.md` (external API behaviour, ground truth).
-2. **Spec** — `docs/specs/2026-06-05-video-to-note-v2-design.md` (authoritative for contracts).
-3. **This plan** — task decomposition only.
+1. **Spec / design** — `docs/specs/2026-06-05-video-to-note-v2-design.md` (authoritative for all
+   product behaviour and contracts; the north star).
+2. **This plan** — task decomposition only; conforms to the spec.
+3. **Empirical spikes** — `spikes/*.md` (external API behaviour). Refine implementation details
+   where the spec is silent; any contradiction with the spec is a blocked design decision, not an
+   override.
 4. Secondary (informative, never overriding): `frontend-design/high-fidelity/v2/*` (UI reference),
    `docs/prompt/raw.md`.
 
@@ -103,7 +111,7 @@ The PostgreSQL schema is **spec: Data model (PostgreSQL)** — `videos`, `jobs`,
 `style_defaults`, `transcript_spans`, `visual_events`, `clips`, `notes`, `note_versions`,
 `job_events`, `exports`, `job_costs`, plus the unique indexes (`uq_videos_canonical`,
 `uq_spans_video_start`, `uq_visual_video_at_type`, `UNIQUE(job_id, order_index)`,
-`UNIQUE(job_id, seq)`). Migration `0001_initial` materializes it verbatim (Task P1-F-CONTRACT-T2).
+`UNIQUE(job_id, seq)`). Migration `0001_initial` materializes it verbatim (Task P1-T2).
 `prompts.style_profile` JSON shape is **spec: Data model** (the `style_profile` JSON block).
 
 Python domain models (`vtn_core/models.py`, Pydantic v2) mirror these tables 1:1 with enums:
@@ -174,8 +182,8 @@ ONE reusable assertion module, called from every test layer **and** on the outpu
 - `assert_export_structure(zip)` — `note.md` + `images/NNNN-*.png` (one per clip) + `metadata.json`
   present; image paths in `note.md` are relative and resolve (spec: Export format).
 - `assert_style_profile_valid(profile)` — required keys + per-dimension `source∈{examples,depth}`.
-- `assert_reconciliation_flags(note, op)` — flag transitions match spec: Reconciliation (table in
-  Task P4-F17).
+- `assert_reconciliation_flags(note, op)` — flag transitions match spec: Reconciliation (encoded in
+  Task F17-T1).
 - `assert_note_content_flags(note)` — `include_summary OR include_transcript` (the at-least-one rule;
   spec: Content selection is a render-time projection). The DB `CHECK (include_summary OR
   include_transcript)` is the backstop; this asserts it at every materialized-note boundary.
@@ -218,6 +226,7 @@ Coverage: every spec capability maps to exactly one feature row; boundaries are 
 | F27 | CI/CD | GitHub Actions lint/type/test/build + deploy + `alembic upgrade head` | infra (F26) | P6 | F26 |
 | F28 | Segmentation eval harness | labeled-talk recall/precision scoring vs config weights | fusion code (F8) | P6 | F8 |
 | F29 | README & top-level docs | `README.md`: what the app does, architecture, run-locally, deploy (`azd up`/`down`), test, repo map | per-package internals | P6 | F26 (deploy steps), P2–P5 (run steps) |
+| F-SB | Azure Service Bus QueueProvider (real) | `ServiceBusQueue` impl of the `QueueProvider` Protocol + DLQ + duplicate-safe receive | Protocol/in-memory impl (P1-T5) | P6 | P1-T5, [SPIKE] S8 |
 
 **Not features (cross-cutting groundwork, early phases):** monorepo scaffold, domain models, full
 migration, contracts-as-code, fake profile, fixtures, invariant module, all spikes.
@@ -234,7 +243,7 @@ migration, contracts-as-code, fake profile, fixtures, invariant module, all spik
 | **P3 Real media + AI** | real F2/F4/F5/F6/F8/F9 adapters, F7, F20 | integration (Postgres+Azurite+fake AI) green; real-infra e2e (opt-in) green on tiny video |
 | **P4 Editing backend** | F12, F13, F14, F15, F16, F17, F18, F19 | per-feature acceptance + mocked e2e of full edit/review/export round-trip green |
 | **P5 Frontend** | F21–F25 | Playwright mocked e2e of login→submit→edit→review→export green; component tests green |
-| **P6 Infra/CI/eval/real queue/docs** | F26, F27, F28, F29, Azure Service Bus QueueProvider | `azd up` provisions+deploys a working env and `azd down --purge` removes everything; CI workflow green on PR; eval harness emits recall/precision report; `README.md` present and accurate |
+| **P6 Infra/CI/eval/real queue/docs** | F26, F27, F28, F29, F-SB | CI green on PR; eval harness emits recall/precision report; `README.md` present and accurate; **P6-FINAL acceptance green — `azd up` → full `-m real_infra` suite (incl. deployed API + browser journeys) → `azd down --purge` — with `docs/acceptance.md` recorded** |
 
 No feature depends on a later phase. Each phase ends with an **independent-reviewer gate** (a second
 agent/model reads spec + diff + claimed acceptance + the invariants the gate owns) run **after** the
@@ -476,8 +485,11 @@ One task each (same shape — sig dump, smallest live call, writeup locking the 
 
 **Acceptance (each):** `RUN_REAL=1 uv run python spikes/spike_<dep>.py` exits 0 against the real
 service (S2/S3 local) and `spikes/<dep>.md` records the exact response shape + failure behaviour the
-C4 contract row is derived from. **If a spike contradicts the spec, update the spec/contract to the
-spike and note it in the writeup.** *(spec: Pipeline detailed algorithms; Architecture)*
+C4 contract row is derived from. A spike may pin implementation details the spec leaves open (flags,
+limits, SDK mechanics). **If a spike contradicts required spec behaviour or a contract, do NOT edit
+the spec to match — stop, record the contradiction as a BLOCKER in the writeup, and raise an explicit
+design-review decision before implementing** (per *Source of truth*). *(spec: Pipeline detailed
+algorithms; Architecture)*
 
 **Phase P0 gate:** all spike scripts exit 0 (real-infra ones under `RUN_REAL=1`, recorded as run);
 smoke tests green; independent-reviewer pass on the spike writeups vs the C4 contract table.
@@ -518,7 +530,7 @@ model and job lifecycle; Data model)*
 **Files:** `migrations/env.py`, `migrations/versions/0001_initial.py`,
 `tests/contracts/test_migration.py`.
 
-- [ ] Translate spec: Data model SQL verbatim into the migration `upgrade()` (all 11 tables + every
+- [ ] Translate spec: Data model SQL verbatim into the migration `upgrade()` (all 12 tables + every
   index + every unique index + CHECK constraints + `gen_random_uuid()` default — enable `pgcrypto`).
   `downgrade()` drops them in FK order.
 - [ ] Test (real Postgres): `alembic upgrade head`; introspect that every table/column/constraint
@@ -684,9 +696,10 @@ the cookie. *(spec: Progress event transport; Event contract)*
   `complete`, on exception record `error_code/error_message`, emit `error`, and `complete` (or
   dead-letter after max attempts). Duplicate delivery safe (skip-if-present).
 - [ ] `runner.run`: ordered stage list; orchestrator sets `jobs.stage` and emits `stage` events;
-  parallel `analyzing` fork runs transcribe+visual+style concurrently (asyncio.gather) and the
-  orchestrator sets `analyzing` on entry and `segmenting` on join (branches never write
-  `jobs.stage`); on completion set `status=review_ready`, emit `done`.
+  parallel `analyzing` fork runs transcribe + visual concurrently (asyncio.gather) — the third branch,
+  extract-style, is a no-op stub here and lands in P3 (F7) — and the orchestrator sets `analyzing` on
+  entry and `segmenting` on join (branches never write `jobs.stage`); on completion set
+  `status=review_ready`, emit `done`.
 - [ ] Test: a job with all-fake stages reaches `review_ready`; `jobs.stage` only ever set by the
   orchestrator; a forced exception in one stage records error + emits `error` event.
 - [ ] Run → PASS. `git commit -m "P2: worker consumer + stage runner"`
@@ -1168,7 +1181,7 @@ SSE client in `apps/web/lib`. Component tests (Vitest) + Playwright e2e against 
 
 - `apps/web/lib/{api.ts,sse.ts,types.ts,markdown.ts}`
 - `apps/web/app/{login,submit,edit/[jobId],review/[jobId],export/[jobId]}/page.tsx`
-- `apps/web/components/{timeline,inspector,doc-editor,version-history,cost-banner}/*`
+- `apps/web/components/{timeline,inspector,doc-editor,content-selector,version-history,cost-banner}/*`
 - `apps/web/e2e/journey.spec.ts`
 
 ### [P5] Feature F21 — Login
@@ -1213,10 +1226,16 @@ is gated; Event contract)*
 **Files:** `components/timeline/*`, `components/inspector/*`, `__tests__/edit-tools.test.tsx`.
 - [ ] Split at playhead, merge selection, set-scene (frame-on-demand + candidate frames), inspector
   edits title/summary with "Restore AI summary", Regenerate on `needs_regen` clips. ETag-aware calls;
-  on `409 needs_ack` show the heads-up modal ("Keep editing" → retry `?ack=1`; "Cancel" aborts); on
-  412 refetch + retry. "Note will refresh" chip shown ⇔ about to change clips while polished.
-- [ ] Test: needs_ack modal flow retries with `ack=1`; 412 triggers refetch; restore-AI-summary
-  resets prose; regenerate clears the needs-regen marker in the UI.
+  on `409 needs_ack` show the heads-up modal ("Keep editing" → retry `?ack=1`; "Cancel" aborts). On
+  `412 stale_write` **do NOT auto-retry**: refetch the latest clip/collection state, surface a visible
+  "changed elsewhere — review and reapply" notice with the refreshed values, and require the user to
+  explicitly reapply/confirm the edit against the new state (the reapplied write uses the fresh ETag).
+  This preserves the design's optimistic-concurrency guarantee — a 412 can never be silently
+  overwritten. "Note will refresh" chip shown ⇔ about to change clips while polished.
+- [ ] Test: needs_ack modal flow retries with `ack=1`; **412 refetches and surfaces the stale-state
+  notice and sends NO write until the user reapplies/confirms** (assert zero automatic mutation after
+  a 412), then the user-confirmed reapply uses the refreshed ETag; restore-AI-summary resets prose;
+  regenerate clears the needs-regen marker in the UI.
 - [ ] `git commit -m "F23: edit tools"`
 **Acceptance:** `pnpm test edit-tools` exits 0; needs_ack + 412 + restore flows covered. *(spec: Edit
 page; reconciliation warnings are pure functions of flags)*
@@ -1457,7 +1476,7 @@ independent-reviewer pass over the whole system vs spec (gap-pass checklist belo
 
 Ran 2 rounds against the templates checklist. Outcome:
 
-- ✅ Plan is Phase → Feature → Task; full feature list (F0–F29) with disjoint boundaries; each
+- ✅ Plan is Phase → Feature → Task; full feature list (F0–F29 + F-SB) with disjoint boundaries; each
   feature assigned to a phase; no feature depends on a later phase.
 - ✅ **One-command infra lifecycle:** `azd up` provisions+deploys and `azd down --purge` tears down
   (F26-T2), verified by an opt-in real-subscription lifecycle test.
@@ -1508,10 +1527,14 @@ representative code shown here is sufficient to predict the diff.
 
 ---
 
-## Open questions (spec gaps — do not invent answers)
+## Open questions (do not invent answers)
 
-These are unresolved by the spec; each names the spec section that should answer it and the minimum
-decision to unblock.
+Two kinds, both deferring to the design — never overriding it: **(a) genuine spec gaps** the design
+leaves open (items 1–2: editor tech, local secret bootstrap), each naming the section that should
+answer it plus the minimum decision to unblock; and **(b) design-deferred decisions** the spec's own
+*Open questions* already parks with a stated default (items 3–7) — listed here only so they are not
+silently re-litigated or added. Where the design already states a default, that default stands; these
+are not gaps to fill.
 
 1. **Markdown editor component (Review).** Spec: Review says "Markdown toolbar" but not the editor
    tech. *Decision to unblock F24:* MVP uses textarea + live preview; TipTap/ProseMirror is a
