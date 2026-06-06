@@ -260,7 +260,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 ### P0 — Foundation
 - [x] P0-T1 — uv workspace + 10 packages + api/worker scaffold
-- [ ] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
+- [x] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
 - [ ] P0-T3 — fixtures + `fake` profile skeleton
 - [ ] P0-S0 — SPIKE: Azure credentials / liveness (gates all real-infra)
 - [ ] P0-S1 — SPIKE: yt-dlp
@@ -409,13 +409,13 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 **Files:** `docker-compose.yml`, `.env.example`, `apps/web/*`, `pnpm-workspace.yaml`.
 
-- [ ] `docker-compose.yml`: `postgres:16` (db `vtn`, exposes 5432) and `azurite` (blob port 10000).
-- [ ] `create-next-app` into `apps/web` (TS, App Router); add Vitest + Testing Library + Playwright.
-- [ ] Write `apps/web/__tests__/smoke.test.tsx` rendering a trivial component; `tests/integration/
+- [x] `docker-compose.yml`: `postgres:16` (db `vtn`, exposes 5432) and `azurite` (blob port 10000).
+- [x] `create-next-app` into `apps/web` (TS, App Router); add Vitest + Testing Library + Playwright.
+- [x] Write `apps/web/__tests__/smoke.test.tsx` rendering a trivial component; `tests/integration/
   test_db_up.py` connecting to Postgres and `SELECT 1`.
-- [ ] Run `docker compose up -d`, then `uv run pytest tests/integration/test_db_up.py -q` and
+- [x] Run `docker compose up -d`, then `uv run pytest tests/integration/test_db_up.py -q` and
   `pnpm -C apps/web test` → expect PASS.
-- [ ] `git commit -m "P0: docker-compose + Next.js scaffold"`
+- [x] `git commit -m "P0: docker-compose + Next.js scaffold"`
 
 **Acceptance:** `docker compose up -d` healthy; `SELECT 1` integration test exits 0; `pnpm test`
 smoke exits 0. *(spec: Local dev; Deployment and CI/CD)*
