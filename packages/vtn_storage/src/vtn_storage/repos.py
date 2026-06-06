@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, cast
 from uuid import UUID
 
 import psycopg
 from psycopg.rows import dict_row
-from vtn_core.models import Job, SourceType
+from psycopg.types.json import Jsonb
+from vtn_core.models import Job, PromptDepth, SourceType
+
+
+@dataclass(frozen=True)
+class JobSubmission:
+    job_id: UUID
+    cost_estimate: dict[str, Any]
 
 
 class JobRepository:
@@ -60,3 +69,108 @@ class JobRepository:
                 if row is None:
                     return None
                 return Job.model_validate(row)
+
+    def create_submission(
+        self,
+        *,
+        url: str,
+        depth: PromptDepth,
+        custom_prompt: str | None,
+        examples: list[dict[str, Any]],
+        use_saved_style: bool,
+    ) -> JobSubmission:
+        cost_estimate = {"usd": "0.0500", "breakdown": {"profile": "fake_stub"}}
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO videos (source_url, source_type)
+                    VALUES (%s, %s)
+                    RETURNING id
+                    """,
+                    (url, SourceType.other.value),
+                )
+                video_row = cursor.fetchone()
+                if video_row is None:
+                    raise RuntimeError("video insert returned no id")
+                video_id = cast(UUID, video_row[0])
+
+                cursor.execute(
+                    """
+                    INSERT INTO jobs (video_id)
+                    VALUES (%s)
+                    RETURNING id
+                    """,
+                    (video_id,),
+                )
+                job_row = cursor.fetchone()
+                if job_row is None:
+                    raise RuntimeError("job insert returned no id")
+                job_id = cast(UUID, job_row[0])
+
+                cursor.execute(
+                    """
+                    INSERT INTO prompts (
+                        job_id, depth, custom_prompt, examples, model_config
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        job_id,
+                        depth.value,
+                        custom_prompt,
+                        Jsonb(examples),
+                        Jsonb({"use_saved_style": use_saved_style}),
+                    ),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO job_costs (job_id, estimate_usd, estimate_json, computed_at)
+                    VALUES (%s, %s, %s, now())
+                    """,
+                    (job_id, Decimal("0.0500"), Jsonb(cost_estimate)),
+                )
+        return JobSubmission(job_id=job_id, cost_estimate=cost_estimate)
+
+    def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT j.id, j.status, j.stage, j.error_code, j.error_message,
+                           n.is_polished, n.clips_dirty,
+                           c.estimate_usd, c.estimate_json
+                    FROM jobs j
+                    LEFT JOIN notes n ON n.job_id = j.id
+                    LEFT JOIN job_costs c ON c.job_id = j.id
+                    WHERE j.id = %s
+                    """,
+                    (job_id,),
+                )
+                row: dict[str, Any] | None = cursor.fetchone()
+                if row is None:
+                    return None
+
+        estimate_usd = row["estimate_usd"]
+        estimate_json = row["estimate_json"] or {}
+        cost: dict[str, Any] = {}
+        if estimate_usd is not None:
+            cost["estimate_usd"] = f"{estimate_usd:.4f}"
+        if estimate_json:
+            cost["estimate"] = estimate_json
+
+        is_polished = bool(row["is_polished"]) if row["is_polished"] is not None else False
+        clips_dirty = bool(row["clips_dirty"]) if row["clips_dirty"] is not None else False
+
+        return {
+            "id": row["id"],
+            "status": row["status"],
+            "stage": row["stage"],
+            "flags": {
+                "is_polished": is_polished,
+                "clips_dirty": clips_dirty,
+            },
+            "error_code": row["error_code"],
+            "error_message": row["error_message"],
+            "cost": cost,
+        }
