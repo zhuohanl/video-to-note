@@ -39,5 +39,15 @@ resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-0
   }
 }
 
+resource azureServicesFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = {
+  name: 'AllowAzureServices'
+  parent: server
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
+output serverName string = server.name
 output fqdn string = server.properties.fullyQualifiedDomainName
 output databaseName string = database.name

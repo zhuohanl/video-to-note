@@ -137,5 +137,7 @@ module apps 'modules/apps.bicep' = {
 
 output apiUrl string = apps.outputs.apiUrl
 output webUrl string = apps.outputs.webUrl
+output resourceGroupName string = appResourceGroup.name
 output keyVaultName string = vault.outputs.name
+output postgresServerName string = postgres.outputs.serverName
 output serviceBusQueueName string = serviceBus.outputs.queueName

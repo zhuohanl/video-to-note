@@ -4,6 +4,11 @@ metadata:
 infra:
   provider: bicep
   path: infra
+hooks:
+  postprovision:
+    run: ./infra/hooks/seed_secrets.sh
+  postdeploy:
+    run: ./infra/hooks/migrate.sh
 services:
   web:
     project: ./apps/web
