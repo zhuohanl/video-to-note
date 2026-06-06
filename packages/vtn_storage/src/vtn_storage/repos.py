@@ -136,6 +136,93 @@ class JobRepository:
                 )
         return JobSubmission(job_id=job_id, cost_estimate=cost_estimate)
 
+    def get_job_source_url(self, job_id: UUID) -> str:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT v.source_url
+                    FROM jobs j
+                    JOIN videos v ON v.id = j.video_id
+                    WHERE j.id = %s
+                    """,
+                    (job_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"job not found: {job_id}")
+                return cast(str, row[0])
+
+    def claim_canonical_video(
+        self,
+        *,
+        job_id: UUID,
+        canonical_url: str,
+        source_type: SourceType,
+        title: str,
+        duration_sec: Decimal,
+    ) -> UUID:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT video_id
+                    FROM jobs
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (job_id,),
+                )
+                job_row = cursor.fetchone()
+                if job_row is None:
+                    raise RuntimeError(f"job not found: {job_id}")
+                placeholder_video_id = cast(UUID, job_row[0])
+
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (canonical_url,))
+                cursor.execute(
+                    "SELECT id FROM videos WHERE canonical_url = %s",
+                    (canonical_url,),
+                )
+                canonical_row = cursor.fetchone()
+                if canonical_row is not None:
+                    canonical_video_id = cast(UUID, canonical_row[0])
+                    if canonical_video_id != placeholder_video_id:
+                        cursor.execute(
+                            "UPDATE jobs SET video_id = %s, updated_at = now() WHERE id = %s",
+                            (canonical_video_id, job_id),
+                        )
+                        cursor.execute(
+                            """
+                            DELETE FROM videos
+                            WHERE id = %s
+                              AND NOT EXISTS (
+                                SELECT 1 FROM jobs WHERE video_id = %s
+                              )
+                            """,
+                            (placeholder_video_id, placeholder_video_id),
+                        )
+                    return canonical_video_id
+
+                cursor.execute(
+                    """
+                    UPDATE videos
+                    SET canonical_url = %s,
+                        source_type = %s,
+                        title = %s,
+                        duration_sec = %s,
+                        artifacts_updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        canonical_url,
+                        source_type.value,
+                        title,
+                        duration_sec,
+                        placeholder_video_id,
+                    ),
+                )
+                return placeholder_video_id
+
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:
