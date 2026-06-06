@@ -455,6 +455,71 @@ class JobRepository:
                 )
                 return list(cursor.fetchall())
 
+    def clips_view(self, job_id: UUID) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, order_index, start_sec, end_sec, title, summary,
+                           scene_caption, status, scene_at_sec, scene_blob_path,
+                           scene_source, needs_regen, updated_at
+                    FROM clips
+                    WHERE job_id = %s
+                    ORDER BY order_index
+                    """,
+                    (job_id,),
+                )
+                rows = list(cursor.fetchall())
+
+        clips = []
+        etags = []
+        for row in rows:
+            etag = f'"{row["updated_at"].isoformat()}"'
+            etags.append(etag)
+            scene_blob_path = row["scene_blob_path"]
+            clips.append(
+                {
+                    "id": row["id"],
+                    "order_index": row["order_index"],
+                    "start_sec": row["start_sec"],
+                    "end_sec": row["end_sec"],
+                    "title": row["title"],
+                    "summary": row["summary"],
+                    "scene_caption": row["scene_caption"],
+                    "status": row["status"],
+                    "scene_at_sec": row["scene_at_sec"],
+                    "scene_url": f"local://{scene_blob_path}" if scene_blob_path else None,
+                    "scene_source": row["scene_source"],
+                    "needs_regen": row["needs_regen"],
+                    "etag": etag,
+                }
+            )
+        return {"clips": clips, "collection_etag": max(etags) if etags else '""'}
+
+    def note_view(self, job_id: UUID) -> dict[str, Any] | None:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT markdown, include_summary, include_transcript,
+                           is_polished, clips_dirty, updated_at
+                    FROM notes
+                    WHERE job_id = %s
+                    """,
+                    (job_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+        return {
+            "markdown": row["markdown"],
+            "include_summary": row["include_summary"],
+            "include_transcript": row["include_transcript"],
+            "is_polished": row["is_polished"],
+            "clips_dirty": row["clips_dirty"],
+            "etag": f'"{row["updated_at"].isoformat()}"',
+        }
+
     def create_initial_note(self, job_id: UUID, markdown: str, clips: list[dict[str, Any]]) -> None:
         snapshot = [
             {

@@ -293,7 +293,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F8-T1 (fake) — segmenting (signals + fusion + refinement)
 - [x] F9-T1 (fake) — drafting (scene selection + clip summary)
 - [x] F10-T1 — initial note assembly + baseline version
-- [ ] P2-A1 — read endpoints (`GET /clips`, `GET /note`)
+- [x] P2-A1 — read endpoints (`GET /clips`, `GET /note`)
 - [ ] P2-E1 — `[TEST-E2E-MOCK]` submit → review_ready → GET note
 - [ ] **P2 phase gate** — mocked e2e green; invariants pass; coverage; reviewer pass
 
