@@ -326,6 +326,60 @@ class JobRepository:
                     (video_id,),
                 )
 
+    def transcript_span_rows(self, video_id: UUID) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT start_sec, end_sec, text, speaker, source
+                    FROM transcript_spans
+                    WHERE video_id = %s
+                    ORDER BY start_sec
+                    """,
+                    (video_id,),
+                )
+                return list(cursor.fetchall())
+
+    def visual_event_rows(self, video_id: UUID) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT at_sec, event_type, confidence, ocr_text, phash, frame_blob_path
+                    FROM visual_events
+                    WHERE video_id = %s
+                    ORDER BY at_sec
+                    """,
+                    (video_id,),
+                )
+                return list(cursor.fetchall())
+
+    def replace_clips(self, job_id: UUID, clips: list[dict[str, Any]]) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM clips WHERE job_id = %s", (job_id,))
+                cursor.executemany(
+                    """
+                    INSERT INTO clips (
+                        job_id, order_index, start_sec, end_sec, title,
+                        summary_seed, classification, status
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending')
+                    """,
+                    [
+                        (
+                            job_id,
+                            index,
+                            clip["start_sec"],
+                            clip["end_sec"],
+                            clip["title"],
+                            clip["summary_seed"],
+                            clip["classification"],
+                        )
+                        for index, clip in enumerate(clips)
+                    ],
+                )
+
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:
