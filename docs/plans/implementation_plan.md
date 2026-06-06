@@ -308,7 +308,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [ ] **P3 phase gate** — integration green; real-infra e2e green; reviewer pass
 
 ### P4 — Editing & reconciliation backend
-- [ ] F12-T1 — media serving + frame-on-demand
+- [x] F12-T1 — media serving + frame-on-demand
 - [ ] F13-T1 — `PATCH /clips/{id}` + auto-sync / needs_ack
 - [ ] F14-T1 — split / merge + placeholder values
 - [ ] F15-T1 — regenerate

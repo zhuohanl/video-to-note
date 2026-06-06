@@ -32,6 +32,10 @@ def event_channel(job_id: UUID) -> str:
     return f"vtn_job_{job_id.hex}"
 
 
+def _etag(value: Any) -> str:
+    return f'"{value.isoformat()}"'
+
+
 class JobRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
@@ -619,6 +623,87 @@ class JobRepository:
                     (video_id, start_sec, end_sec),
                 )
                 return list(cursor.fetchall())
+
+    def video_proxy_key(self, video_id: UUID) -> str:
+        path = self.proxy_blob_path(video_id)
+        if path is None:
+            raise RuntimeError(f"proxy not ready for video: {video_id}")
+        return path
+
+    def clip_media_context(self, clip_id: UUID) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT c.id, c.job_id, c.start_sec, c.end_sec, c.updated_at,
+                           j.video_id, j.status
+                    FROM clips c
+                    JOIN jobs j ON j.id = c.job_id
+                    WHERE c.id = %s
+                    """,
+                    (clip_id,),
+                )
+                row: dict[str, Any] | None = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"clip not found: {clip_id}")
+                return dict(row)
+
+    def scene_candidates(self, clip_id: UUID, limit: int = 5) -> list[dict[str, Any]]:
+        context = self.clip_media_context(clip_id)
+        rows = self.visual_events_for_clip(
+            context["video_id"],
+            context["start_sec"],
+            context["end_sec"],
+        )
+        return sorted(rows, key=lambda row: row["confidence"], reverse=True)[:limit]
+
+    def set_manual_scene(
+        self,
+        clip_id: UUID,
+        *,
+        expected_etag: str,
+        at_sec: Decimal,
+        scene_blob_path: str,
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT updated_at
+                    FROM clips
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (clip_id,),
+                )
+                row: dict[str, Any] | None = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"clip not found: {clip_id}")
+                current_etag = _etag(row["updated_at"])
+                if current_etag != expected_etag:
+                    return {"stale": True, "etag": current_etag}
+                cursor.execute(
+                    """
+                    UPDATE clips
+                    SET scene_at_sec = %s,
+                        scene_blob_path = %s,
+                        scene_source = 'manual',
+                        updated_at = now()
+                    WHERE id = %s
+                    RETURNING updated_at
+                    """,
+                    (at_sec, scene_blob_path, clip_id),
+                )
+                updated = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"clip update failed: {clip_id}")
+                return {
+                    "stale": False,
+                    "etag": _etag(updated["updated_at"]),
+                    "scene_at_sec": at_sec,
+                    "scene_blob_path": scene_blob_path,
+                    "scene_source": "manual",
+                }
 
     def update_clip_draft(
         self,
