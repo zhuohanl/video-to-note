@@ -8,7 +8,7 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from vtn_core.models import Job, PromptDepth, SourceType
+from vtn_core.models import Job, JobStage, JobStatus, PromptDepth, SourceType
 
 
 @dataclass(frozen=True)
@@ -210,3 +210,39 @@ class JobRepository:
                     (job_id, last_event_id),
                 )
                 return list(cursor.fetchall())
+
+    def update_job_stage(self, job_id: UUID, stage: JobStage) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE jobs
+                    SET stage = %s, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (stage.value, job_id),
+                )
+
+    def mark_review_ready(self, job_id: UUID) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE jobs
+                    SET status = %s, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (JobStatus.review_ready.value, job_id),
+                )
+
+    def fail_job(self, job_id: UUID, code: str, message: str) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE jobs
+                    SET status = %s, error_code = %s, error_message = %s, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (JobStatus.failed.value, code, message, job_id),
+                )

@@ -1629,6 +1629,7 @@ dev = [
     { name = "vtn-style" },
     { name = "vtn-transcript" },
     { name = "vtn-visual" },
+    { name = "vtn-worker" },
     { name = "yt-dlp" },
 ]
 
@@ -1664,6 +1665,7 @@ dev = [
     { name = "vtn-style", editable = "packages/vtn_style" },
     { name = "vtn-transcript", editable = "packages/vtn_transcript" },
     { name = "vtn-visual", editable = "packages/vtn_visual" },
+    { name = "vtn-worker", editable = "worker" },
     { name = "yt-dlp", specifier = ">=2026.1.0" },
 ]
 
