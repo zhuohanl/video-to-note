@@ -276,7 +276,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 ### P1 — Contracts as code
 - [x] P1-T1 — domain models + enums + state machine
-- [ ] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
+- [x] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
 - [ ] P1-T3 — API request/response schemas + error envelope
 - [ ] P1-T4 — SSE event models
 - [ ] P1-T5 — storage Protocols + InMemory/Local impls + repos
@@ -530,14 +530,14 @@ model and job lifecycle; Data model)*
 **Files:** `migrations/env.py`, `migrations/versions/0001_initial.py`,
 `tests/contracts/test_migration.py`.
 
-- [ ] Translate spec: Data model SQL verbatim into the migration `upgrade()` (all 12 tables + every
+- [x] Translate spec: Data model SQL verbatim into the migration `upgrade()` (all 12 tables + every
   index + every unique index + CHECK constraints + `gen_random_uuid()` default — enable `pgcrypto`).
   `downgrade()` drops them in FK order.
-- [ ] Test (real Postgres): `alembic upgrade head`; introspect that every table/column/constraint
+- [x] Test (real Postgres): `alembic upgrade head`; introspect that every table/column/constraint
   from the spec exists (assert `uq_videos_canonical`, `uq_spans_video_start`,
   `uq_visual_video_at_type`, `UNIQUE(job_id,order_index)`, `UNIQUE(job_id,seq)`, the single-row CHECK
   on `style_defaults`); then `alembic downgrade base` leaves zero `vtn` tables.
-- [ ] Run → PASS. `git commit -m "P1: migration 0001 initial schema"`
+- [x] Run → PASS. `git commit -m "P1: migration 0001 initial schema"`
 
 **Acceptance:** `alembic upgrade head` then `alembic downgrade base` both exit 0; introspection test
 finds all spec constraints. **Rollback verified.** *(spec: Data model; Migrations)*
