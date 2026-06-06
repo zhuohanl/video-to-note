@@ -67,7 +67,6 @@ export function EditClient({ jobId }: { jobId: string }) {
       setClipsView(nextClips);
       setNote(nextNote);
       setSelectedClipId((current) => current ?? nextClips.clips[0]?.id ?? null);
-      setTimeline((current) => ({ ...current, reviewReady: true }));
     } catch {
       return;
     }

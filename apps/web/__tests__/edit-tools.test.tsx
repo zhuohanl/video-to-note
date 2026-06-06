@@ -1,12 +1,27 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EditClient } from "../app/edit/[jobId]/client";
 
 class MockEventSource {
-  constructor(readonly url: string) {}
-  addEventListener() {}
+  static instances: MockEventSource[] = [];
+  readonly listeners = new Map<string, ((event: MessageEvent) => void)[]>();
+
+  constructor(readonly url: string) {
+    MockEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
   close() {}
+
+  emit(type: string, data: object, lastEventId: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(new MessageEvent(type, { data: JSON.stringify(data), lastEventId }));
+    }
+  }
 }
 
 const clipA = {
@@ -53,6 +68,7 @@ function noteView(isPolished = true) {
 
 describe("edit tools", () => {
   beforeEach(() => {
+    MockEventSource.instances = [];
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -146,6 +162,7 @@ describe("edit tools", () => {
     fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
     await waitFor(() => expect(screen.queryByText("Needs regeneration")).not.toBeInTheDocument());
 
+    unlockTools();
     fireEvent.click(screen.getByRole("button", { name: "Split" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith("/clips/clip-a/split", {
@@ -177,4 +194,8 @@ describe("edit tools", () => {
 
 function renderEditPage() {
   render(<EditClient jobId="job-1" />);
+}
+
+function unlockTools() {
+  act(() => MockEventSource.instances[0].emit("done", {}, "9"));
 }
