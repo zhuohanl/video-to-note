@@ -674,9 +674,11 @@ CREATE INDEX idx_clips_job ON clips(job_id, order_index);
 CREATE TABLE notes (
   job_id             uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
   markdown           text NOT NULL,        -- canonical prose; NEVER contains transcript blocks
+  include_summary    boolean NOT NULL DEFAULT true,  -- render/export flag only; whether the prose is emitted (stays stored regardless)
   include_transcript boolean NOT NULL DEFAULT false, -- render/export flag only; transcript composited from transcript_spans, not stored here
   is_polished        boolean NOT NULL DEFAULT false, -- user hand-edited prose since last assemble/rebuild
   clips_dirty        boolean NOT NULL DEFAULT false, -- clips changed since note last built/kept (drift)
+  CONSTRAINT note_content_nonempty CHECK (include_summary OR include_transcript), -- at least one content kind
   built_from_version int,                  -- advisory provenance only (nullable): note_versions.seq the
                                            -- current note was last assembled/rebuilt/restored from. Set by
                                            -- initial assembly, rebuild, and restore; NOT a concurrency guard
@@ -694,7 +696,7 @@ CREATE TABLE note_versions (
   kind            text NOT NULL CHECK (kind IN ('initial','auto_edit','auto_pre_change','auto_rebuild','manual','restore')),
   is_baseline     boolean NOT NULL DEFAULT false,  -- true only for seq=1; immutable, never pruned
   note_markdown   text NOT NULL,
-  note_settings   jsonb NOT NULL DEFAULT '{}',  -- {include_transcript, is_polished} restored verbatim; excludes clips_dirty (a note↔clips relationship, recomputed to false on restore)
+  note_settings   jsonb NOT NULL DEFAULT '{}',  -- {include_summary, include_transcript, is_polished} restored verbatim; excludes clips_dirty (a note↔clips relationship, recomputed to false on restore)
   clips_snapshot  jsonb NOT NULL,          -- full clip structure at snapshot time
   created_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (job_id, seq)
@@ -943,17 +945,27 @@ Per clip:
 On entering `review_ready`, assemble `notes.markdown` from the clips in order. Each clip
 contributes a section: `## {order}. {title}` with its time range, the scene image (relative
 path) with `scene_caption`, and the `summary` prose. Write the `notes` row
-(`is_polished=false`, `clips_dirty=false`) and freeze the baseline version (`seq=1`,
-`kind='initial'`, `is_baseline=true`).
+(`include_summary=true`, `include_transcript=false`, `is_polished=false`, `clips_dirty=false`) and
+freeze the baseline version (`seq=1`, `kind='initial'`, `is_baseline=true`).
 
-**Transcript blocks are never persisted in `notes.markdown`.** `include_transcript` is a
-presentation flag, not note content: transcript blockquotes are **rendered virtually** — composed
-from each clip's `transcript_spans` at render time (Review) and at serialization time (export) —
-and inserted under each section **only when `include_transcript=true`**. The assembler above
-therefore writes the same `notes.markdown` regardless of the toggle. This keeps one source of
-truth: prose lives in `notes.markdown`; transcript text lives in `transcript_spans`; the toggle
-only decides whether the latter is composited into the rendered/exported document. See
-[Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection).
+**Both prose and transcript are render-time selections; the assembler always writes the full
+prose into `notes.markdown`.** Two presentation flags on `notes` choose what the rendered/exported
+document contains, neither of which is note content:
+
+- **`include_summary`** (default `true`) — whether the `summary` prose is emitted. The prose is
+  **always stored** in `notes.markdown` regardless, so excluding it is lossless and reversible:
+  polish, rebuild, and versioning keep operating on the stored prose, and re-including it requires
+  no regeneration.
+- **`include_transcript`** (default `false`) — whether transcript blockquotes (composed virtually
+  from each clip's `transcript_spans`) are inserted under each section.
+
+The derived **content mode** is `summary` / `transcript` / `both`; **at least one flag must be
+true** (enforced by `note_content_nonempty`). Every section always emits its heading + scene +
+caption; the two flags select prose and/or transcript beneath it. **Transcript text is never
+persisted in `notes.markdown`.** The assembler writes the same `notes.markdown` regardless of either
+flag. This keeps one source of truth: prose lives in `notes.markdown`; transcript text lives in
+`transcript_spans`; the flags only decide what is composited into the rendered/exported document.
+See [Content selection is a render-time projection](#content-selection-is-a-render-time-projection).
 
 ---
 
@@ -995,13 +1007,20 @@ user attempts a clip change, a heads-up modal appears (see reconciliation).
 
 The assembled note rendered as an editable document: per section a heading + time range, the
 scene figure with an editable caption (see [Caption editing](#caption-editing-is-a-clip-mutation)
-— the caption is owned by the clip, not by `notes.markdown`), the editable prose, and — when the **"Include transcript"**
-toggle is on — a **read-only** transcript blockquote projected from the clip's `transcript_spans`
-(virtual; not part of the editable markdown, see
-[Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection)).
-A Markdown toolbar (headings, bold/italic/inline-code, lists, quote, link, divider). The
-**"Include transcript"** toggle persists only the boolean and re-renders without rewriting prose. A **version history** popover with **Save version** and
-**Restore**, and a **rebuild banner** when clips changed. **Proceed to export** moves on.
+— the caption is owned by the clip, not by `notes.markdown`), the editable prose (shown when
+`include_summary` is on), and — when `include_transcript` is on — a **read-only** transcript
+blockquote projected from the clip's `transcript_spans` (virtual; not part of the editable markdown,
+see [Content selection is a render-time projection](#content-selection-is-a-render-time-projection)).
+A Markdown toolbar (headings, bold/italic/inline-code, lists, quote, link, divider).
+
+A **content selector** chooses what the note contains — **Summary**, **Transcript**, or **Both**
+(default Summary) — backed by the `include_summary` / `include_transcript` flags; **at least one is
+always selected** (the control disables deselecting the last one). The selector persists only the
+booleans and re-renders without rewriting prose. The prose editor remains available even when
+`include_summary` is off (the prose stays stored and editable, marked "excluded from output"), so
+polish and versioning keep working and re-selecting Summary is lossless. A **version history**
+popover with **Save version** and **Restore**, and a **rebuild banner** when clips changed.
+**Proceed to export** moves on.
 
 ### Export
 
@@ -1071,7 +1090,7 @@ no LLM call — and are treated as placeholders that **Regenerate** later replac
 **Assembled Markdown while `needs_regen=true`.** The auto-sync assembler (step-9) emits the section
 exactly as for any other clip, using these placeholder values. The "⚠ Needs regeneration" marker is
 **a render/export-time projection from `clips.needs_regen`**, exactly analogous to the
-[transcript projection](#transcript-inclusion-is-a-render-time-projection): it is **never written
+[transcript projection](#content-selection-is-a-render-time-projection): it is **never written
 into `notes.markdown`**. There is exactly one source of truth — the `clips.needs_regen` flag — and
 exactly one materialization rule:
 
@@ -1104,24 +1123,29 @@ risk of losing a user caption when the note is re-assembled.
 | Versioning | Captured in `clips_snapshot` (the caption is a clip field), so versions and restore reproduce it verbatim. |
 | Rebuild | Rebuild re-reads `clips.scene_caption`, so an edited caption survives rebuild unchanged (rebuild only discards hand-edited **prose**, never clip fields). |
 
-### Transcript inclusion is a render-time projection
+### Content selection is a render-time projection
 
-Transcript blockquotes are **not part of `notes.markdown`** and are **not affected by polish,
-rebuild, drift, or versioning**. They are a pure projection of `transcript_spans` (which the
-worker writes once and clip edits keep aligned via clip boundaries):
+The note has **one materialized artifact** — the prose in `notes.markdown` — and **two render-time
+selection flags**, `include_summary` and `include_transcript`, that decide what the rendered/exported
+document contains. Neither flag is note content; neither is **affected by polish, rebuild, drift, or
+versioning** beyond being snapshotted. The transcript is a pure projection of `transcript_spans`
+(which the worker writes once and clip edits keep aligned via clip boundaries); the prose is the
+stored artifact, emitted or withheld by `include_summary` but **always stored**:
 
 | Concern | Behavior |
 | --- | --- |
-| Source of truth | `notes.markdown` holds heading + scene + prose only; transcript text lives in `transcript_spans`. |
-| `include_transcript` | A boolean on `notes`. The only thing `PATCH /note {include_transcript}` persists. Toggling never rewrites `notes.markdown` and never sets `is_polished`. |
-| Review render | When the flag is true, each section renders a blockquote composed from the clip's spans, **below** the prose, visually distinct and **read-only** (the user edits prose, not transcript). |
+| Source of truth | `notes.markdown` holds heading + scene + prose only; transcript text lives in `transcript_spans`. The prose is always stored even when `include_summary=false`. |
+| The two flags | `include_summary` (default `true`) and `include_transcript` (default `false`) are booleans on `notes`. The only thing `PATCH /note {include_summary?, include_transcript?}` persists. Toggling either never rewrites `notes.markdown` and never sets `is_polished`. |
+| At-least-one rule | A `PATCH /note` that would leave **both** flags false is rejected with `422 validation_error`; the DB `CHECK (include_summary OR include_transcript)` is the backstop. The derived content mode is `summary` / `transcript` / `both`. |
+| Review render | The previewed/exported section body is `notes.markdown` (heading + scene + prose) when `include_summary=true`, or the bare clip scaffold (heading + scene + caption, no prose) when `include_summary=false` — heading + scene + caption are present either way, never doubled. A blockquote composed from the clip's spans is rendered **below** the body, visually distinct and **read-only**, when `include_transcript=true`. When `include_summary=false` the `notes.markdown` prose editor stays available but marked "excluded from output" (editing it is still allowed and persisted). |
 | Export | Identical compositing at serialize time — see [Export format](#export-format). |
-| User prose around transcript | Because the user never hand-edits inside a transcript block (it is virtual/read-only), there are no user edits to preserve across a toggle; flipping the boolean is lossless and reversible. |
-| Versioning | `note_settings.include_transcript` is snapshotted with each version, so restore reproduces the toggle state; the transcript itself is re-projected from spans, never stored in the snapshot. |
+| Losslessness | The user never hand-edits inside a transcript block (virtual/read-only), and the prose is never discarded by toggling `include_summary` (it stays in `notes.markdown`); so flipping either flag is lossless and reversible. |
+| Versioning | `note_settings.include_summary` and `note_settings.include_transcript` are both snapshotted with each version, so restore reproduces both flags; the transcript itself is re-projected from spans, never stored in the snapshot. |
 
-This removes the conflict between a materialized note and a separate boolean: there is exactly one
-materialized artifact (prose) and one render-time decoration (transcript), and the boolean selects
-only the latter.
+This removes the conflict between a materialized note and the presentation flags: there is exactly
+one materialized artifact (prose) and two render-time selections (whether to show the prose, and
+whether to decorate with transcript); the flags select only what is composited, never the stored
+content.
 
 ### Operations
 
@@ -1156,12 +1180,14 @@ History is **durable and per-job**. Each version is a full project snapshot (`no
 **Restore** applies a snapshot's note **and** clips together (replacing current clips with
 `clips_snapshot` after freezing the current state as a `restore` version first, so restore is
 non-destructive and itself undoable). `note_settings` carries **only the persisted-state flags**
-(`is_polished`, `include_transcript`) and **deliberately excludes `clips_dirty`**, because
-`clips_dirty` is a *relationship* between a note and a set of clips, not a property of the note
-itself — it cannot be snapshotted meaningfully and is always recomputed on restore. Concretely,
+(`is_polished`, `include_summary`, `include_transcript`) and **deliberately excludes `clips_dirty`**,
+because `clips_dirty` is a *relationship* between a note and a set of clips, not a property of the
+note itself — it cannot be snapshotted meaningfully and is always recomputed on restore. Concretely,
 after restore: `notes.markdown` ← `note_markdown`, `notes.is_polished` ←
-`note_settings.is_polished`, `notes.include_transcript` ← `note_settings.include_transcript` (the two
-note flags are restored verbatim), and **`clips_dirty` is always set to `false`** — the restored note
+`note_settings.is_polished`, `notes.include_summary` ← `note_settings.include_summary`,
+`notes.include_transcript` ← `note_settings.include_transcript` (the three note flags are restored
+verbatim, and they always satisfy the at-least-one rule because they were valid when snapshotted),
+and **`clips_dirty` is always set to `false`** — the restored note
 and restored clips are by construction the consistent pair to resume from, so there is no pending
 drift to acknowledge. (Restoring a snapshot that was polished
 and intentionally drifted reproduces `is_polished=true` with `clips_dirty=false`, exactly the
@@ -1259,15 +1285,17 @@ returns a fresh note ETag.
 > `UNIQUE (job_id, order_index)` constraint.
 
 **Note** (all mutations require the **note ETag** as `If-Match`; `GET` returns it)
-- `GET /jobs/{id}/note` → `{markdown, include_transcript, is_polished, clips_dirty}`; returns the
-  note ETag (`notes.updated_at`) for use as `If-Match` on the writes below.
+- `GET /jobs/{id}/note` → `{markdown, include_summary, include_transcript, is_polished, clips_dirty}`;
+  returns the note ETag (`notes.updated_at`) for use as `If-Match` on the writes below.
 - `PUT /jobs/{id}/note` `{markdown}` → save prose (debounced autosave); sets `is_polished`;
   coalesces an `auto_edit` version. Requires the note ETag; stale → `412 stale_write`.
-- `PATCH /jobs/{id}/note` `{include_transcript}` → toggle transcript inclusion. **Persisted change
-  is the boolean only**; `notes.markdown` is *not* rewritten and `is_polished` is *not* affected.
-  Requires the note ETag (it still advances `notes.updated_at`). Review and export composite
-  transcript blockquotes from `transcript_spans` at render/serialize time when the flag is true (see
-  [Transcript inclusion is a render-time projection](#transcript-inclusion-is-a-render-time-projection)).
+- `PATCH /jobs/{id}/note` `{include_summary?, include_transcript?}` → set the content-selection
+  flags. **Persisted change is the boolean(s) only**; `notes.markdown` is *not* rewritten and
+  `is_polished` is *not* affected. A request that would leave **both** flags false is rejected with
+  `422 validation_error` (the at-least-one rule). Requires the note ETag (it still advances
+  `notes.updated_at`). Review and export composite the prose (when `include_summary=true`) and
+  transcript blockquotes from `transcript_spans` (when `include_transcript=true`) at render/serialize
+  time (see [Content selection is a render-time projection](#content-selection-is-a-render-time-projection)).
 - `POST /jobs/{id}/note/rebuild` → re-assemble from current clips; clear flags; freeze
   `auto_rebuild`. Requires the note ETag; stale → `412 stale_write`.
 - `POST /jobs/{id}/note/keep` → clear `clips_dirty` only. Requires the note ETag; stale →
@@ -1342,17 +1370,24 @@ its own incremental cost.
 ## Export format
 
 A ZIP assembled from current persisted state, repeatable at any time:
-- **`note.md`** — `notes.markdown` with relative image paths, with two **render/export-time
-  projections composited from the current persisted clips** (never read from `notes.markdown`, which
-  stores neither):
+- **`note.md`** — the section body is chosen by `include_summary` (the at-least-one rule guarantees
+  the document is never empty):
+  - When **`include_summary=true`**: `notes.markdown` (the editable prose document — heading + scene
+    + prose per section) with relative image paths.
+  - When **`include_summary=false`**: a bare per-clip **scaffold** (heading `## {order}. {title}` +
+    time range + scene image + `scene_caption`, **no prose**) assembled from the current clips. The
+    polished `notes.markdown` is left untouched and returns intact if Summary is re-selected.
+
+  On top of the chosen body, two **render/export-time projections composited from the current
+  persisted clips** (never read from `notes.markdown`, which stores neither):
   - **Regeneration marker** — for every section whose clip has `needs_regen=true`, the serializer
     prefixes the section heading with the "⚠ Needs regeneration" marker (see
     [Assembled Markdown while `needs_regen=true`](#post-split--post-merge-clip-values-before-regeneration)).
   - **Transcript blockquote** — when `include_transcript=true`, the serializer composites a
     blockquote (built from each clip's `transcript_spans`) under the matching section.
 
-  When no clip is flagged and `include_transcript=false`, both projections are empty and `note.md`
-  equals `notes.markdown` verbatim (image paths rewritten).
+  When `include_summary=true`, `include_transcript=false`, and no clip is flagged, both projections
+  are empty and `note.md` equals `notes.markdown` verbatim (image paths rewritten).
 - **`images/`** — one scene per clip, named by order (`0001-intro.png`, `0002-arch.png`, …).
 - **`metadata.json`** — source URL, depth / resolved profile, transcript source, and per-clip +
   per-scene timestamps for audit and re-import.
