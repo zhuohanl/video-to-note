@@ -280,7 +280,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] P1-T3 — API request/response schemas + error envelope
 - [x] P1-T4 — SSE event models
 - [x] P1-T5 — storage Protocols + InMemory/Local impls + repos
-- [ ] P1-T6 — invariant module (C5)
+- [x] P1-T6 — invariant module (C5)
 - [ ] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
 
 ### P2 — MVP pipeline (fake)
@@ -589,12 +589,12 @@ matches C2 byte-for-byte. *(spec: API contract)*
 
 **Files:** `vtn_core/invariants.py`, `tests/contracts/test_invariants.py`.
 
-- [ ] Implement every assertion in C5 with precise checks (regex for transcript/regen markers,
+- [x] Implement every assertion in C5 with precise checks (regex for transcript/regen markers,
   contiguity over sorted clips, baseline uniqueness, export structure via `zipfile`).
-- [ ] Test: each assertion passes on a valid fixture and raises a typed `InvariantError` with a
+- [x] Test: each assertion passes on a valid fixture and raises a typed `InvariantError` with a
   clear message on a crafted violation (transcript leaked into markdown, duplicate order_index, two
   baselines, missing image, etc.).
-- [ ] Run → PASS. `git commit -m "P1: shared invariant module"`
+- [x] Run → PASS. `git commit -m "P1: shared invariant module"`
 
 **Acceptance:** `uv run pytest tests/contracts/test_invariants.py -q` exits 0; every invariant has a
 positive and a negative test. *(spec: Initial note assembly; Export format; Versioning)*
