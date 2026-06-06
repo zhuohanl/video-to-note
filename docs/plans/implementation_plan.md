@@ -275,7 +275,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [ ] **P0 phase gate** — spikes green; smoke tests green; reviewer pass
 
 ### P1 — Contracts as code
-- [ ] P1-T1 — domain models + enums + state machine
+- [x] P1-T1 — domain models + enums + state machine
 - [ ] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
 - [ ] P1-T3 — API request/response schemas + error envelope
 - [ ] P1-T4 — SSE event models
@@ -514,13 +514,13 @@ smoke tests green; independent-reviewer pass on the spike writeups vs the C4 con
 
 **Files:** `vtn_core/models.py`, `vtn_core/state_machine.py`, `tests/contracts/test_models.py`.
 
-- [ ] Define every C1 model as a Pydantic v2 class with the spec's columns/types and the enums.
-- [ ] `state_machine.legal_transition(from_stage, to_stage)` and `legal_status(from, to)` encoding
+- [x] Define every C1 model as a Pydantic v2 class with the spec's columns/types and the enums.
+- [x] `state_machine.legal_transition(from_stage, to_stage)` and `legal_status(from, to)` encoding
   spec: Job state machine (e.g. `queued→resolving→...→drafting`; `active→review_ready→exported`;
   `active→failed`; no `exported→active`).
-- [ ] Test: round-trip each model to/from dict; assert illegal transitions raise (e.g.
+- [x] Test: round-trip each model to/from dict; assert illegal transitions raise (e.g.
   `drafting→resolving`, `exported→active`); assert enums match spec literals exactly.
-- [ ] Run → PASS. `git commit -m "P1: domain models + state machine"`
+- [x] Run → PASS. `git commit -m "P1: domain models + state machine"`
 
 **Acceptance:** `uv run pytest tests/contracts/test_models.py -q` exits 0; mypy clean. *(spec: Domain
 model and job lifecycle; Data model)*
