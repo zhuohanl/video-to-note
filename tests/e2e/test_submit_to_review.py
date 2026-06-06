@@ -81,7 +81,7 @@ async def test_submit_to_review_ready_with_fake_worker(monkeypatch) -> None:
 
     with client.stream("GET", f"/jobs/{job_id}/events?replay_only=true") as response:
         assert response.status_code == 200
-        sse_frames = _read_sse_frames(response.iter_lines(), 12)
+        sse_frames = _read_sse_frames(response.iter_lines(), 13)
 
     job = client.get(f"/jobs/{job_id}").json()
     clips = client.get(f"/jobs/{job_id}/clips").json()["clips"]

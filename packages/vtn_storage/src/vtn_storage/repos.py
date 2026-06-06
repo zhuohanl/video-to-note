@@ -172,6 +172,54 @@ class JobRepository:
                     raise RuntimeError(f"job not found: {job_id}")
                 return cast(UUID, row[0])
 
+    def get_prompt(self, job_id: UUID) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT depth, custom_prompt, examples, style_profile,
+                           save_style_as_default, model_config
+                    FROM prompts
+                    WHERE job_id = %s
+                    """,
+                    (job_id,),
+                )
+                row: dict[str, Any] | None = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"prompt not found: {job_id}")
+                return dict(row)
+
+    def set_style_profile(self, job_id: UUID, profile: dict[str, Any]) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE prompts
+                    SET style_profile = %s
+                    WHERE job_id = %s
+                    """,
+                    (Jsonb(profile), job_id),
+                )
+
+    def upsert_style_default(
+        self,
+        examples: list[dict[str, Any]],
+        extracted: dict[str, Any],
+    ) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO style_defaults (id, examples, extracted, updated_at)
+                    VALUES (true, %s, %s, now())
+                    ON CONFLICT (id)
+                    DO UPDATE SET examples = EXCLUDED.examples,
+                                  extracted = EXCLUDED.extracted,
+                                  updated_at = now()
+                    """,
+                    (Jsonb(examples), Jsonb(extracted)),
+                )
+
     def claim_canonical_video(
         self,
         *,

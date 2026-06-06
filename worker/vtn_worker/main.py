@@ -12,6 +12,7 @@ from vtn_worker.runner import PipelineError, StageContext, StageHandlers, run
 from vtn_worker.stages.acquiring_media import acquire_media
 from vtn_worker.stages.assemble import assemble_initial_note
 from vtn_worker.stages.drafting import draft
+from vtn_worker.stages.extract_style import extract_style
 from vtn_worker.stages.index_visual import index_visual
 from vtn_worker.stages.resolving import resolve_job
 from vtn_worker.stages.segmenting import segment
@@ -32,6 +33,7 @@ def default_stage_handlers() -> StageHandlers:
         acquiring_media=acquire_media,
         transcribe=_transcribe_with_asr_fallback,
         index_visual=index_visual,
+        extract_style=extract_style,
         segmenting=segment,
         drafting=draft,
         assemble=assemble_initial_note,
