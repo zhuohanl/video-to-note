@@ -1272,6 +1272,156 @@ class JobRepository:
             "etag": f'"{row["updated_at"].isoformat()}"',
         }
 
+    def put_note_markdown(
+        self,
+        job_id: UUID,
+        *,
+        expected_etag: str,
+        markdown: str,
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                note = self._locked_note_with_etag(cursor, job_id)
+                current_etag = _etag(note["updated_at"])
+                if current_etag != expected_etag:
+                    return {"status": "stale_write", "etag": current_etag}
+                cursor.execute(
+                    """
+                    UPDATE notes
+                    SET markdown = %s,
+                        is_polished = true,
+                        updated_at = now()
+                    WHERE job_id = %s
+                    RETURNING markdown, include_summary, include_transcript,
+                              is_polished, clips_dirty, updated_at
+                    """,
+                    (markdown, job_id),
+                )
+                updated: dict[str, Any] | None = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"note update failed: {job_id}")
+                self._coalesce_auto_edit_version(cursor, job_id, updated)
+        return {"status": "ok", "note": self._note_view_from_row(updated)}
+
+    def patch_note_flags(
+        self,
+        job_id: UUID,
+        *,
+        expected_etag: str,
+        fields: set[str],
+        include_summary: bool | None = None,
+        include_transcript: bool | None = None,
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                note = self._locked_note_with_etag(cursor, job_id)
+                current_etag = _etag(note["updated_at"])
+                if current_etag != expected_etag:
+                    return {"status": "stale_write", "etag": current_etag}
+                next_summary = (
+                    include_summary if "include_summary" in fields else note["include_summary"]
+                )
+                next_transcript = (
+                    include_transcript
+                    if "include_transcript" in fields
+                    else note["include_transcript"]
+                )
+                if not (next_summary or next_transcript):
+                    return {"status": "validation_error"}
+                cursor.execute(
+                    """
+                    UPDATE notes
+                    SET include_summary = %s,
+                        include_transcript = %s,
+                        updated_at = now()
+                    WHERE job_id = %s
+                    RETURNING markdown, include_summary, include_transcript,
+                              is_polished, clips_dirty, updated_at
+                    """,
+                    (next_summary, next_transcript, job_id),
+                )
+                updated: dict[str, Any] | None = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"note update failed: {job_id}")
+        return {"status": "ok", "note": self._note_view_from_row(updated)}
+
+    def _locked_note_with_etag(self, cursor: Any, job_id: UUID) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT markdown, include_summary, include_transcript,
+                   is_polished, clips_dirty, updated_at
+            FROM notes
+            WHERE job_id = %s
+            FOR UPDATE
+            """,
+            (job_id,),
+        )
+        note: dict[str, Any] | None = cursor.fetchone()
+        if note is None:
+            raise RuntimeError(f"note not found for job: {job_id}")
+        return note
+
+    def _note_view_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "markdown": row["markdown"],
+            "include_summary": row["include_summary"],
+            "include_transcript": row["include_transcript"],
+            "is_polished": row["is_polished"],
+            "clips_dirty": row["clips_dirty"],
+            "etag": _etag(row["updated_at"]),
+        }
+
+    def _coalesce_auto_edit_version(
+        self,
+        cursor: Any,
+        job_id: UUID,
+        note: dict[str, Any],
+    ) -> None:
+        settings = {
+            "is_polished": note["is_polished"],
+            "include_summary": note["include_summary"],
+            "include_transcript": note["include_transcript"],
+        }
+        clips = self._drafted_clip_rows(cursor, job_id)
+        snapshot = _clip_snapshot(clips)
+        cursor.execute(
+            """
+            SELECT id, seq, kind, note_markdown
+            FROM note_versions
+            WHERE job_id = %s
+            ORDER BY seq DESC
+            LIMIT 1
+            """,
+            (job_id,),
+        )
+        latest: dict[str, Any] | None = cursor.fetchone()
+        if latest is not None and latest["kind"] == "auto_edit":
+            cursor.execute(
+                """
+                UPDATE note_versions
+                SET note_markdown = %s,
+                    note_settings = %s,
+                    clips_snapshot = %s,
+                    created_at = now()
+                WHERE id = %s
+                """,
+                (note["markdown"], Jsonb(settings), Jsonb(snapshot), latest["id"]),
+            )
+            return
+        if latest is not None and latest["note_markdown"] == note["markdown"]:
+            return
+        seq = (latest["seq"] if latest is not None else 0) + 1
+        cursor.execute(
+            """
+            INSERT INTO note_versions (
+                job_id, seq, label, kind, is_baseline,
+                note_markdown, note_settings, clips_snapshot
+            )
+            VALUES (%s, %s, %s, 'auto_edit', false, %s, %s, %s)
+            """,
+            (job_id, seq, f"v{seq}", note["markdown"], Jsonb(settings), Jsonb(snapshot)),
+        )
+
     def create_initial_note(self, job_id: UUID, markdown: str, clips: list[dict[str, Any]]) -> None:
         snapshot = _clip_snapshot(clips)
         settings = {

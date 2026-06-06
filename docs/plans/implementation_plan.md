@@ -312,7 +312,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F13-T1 — `PATCH /clips/{id}` + auto-sync / needs_ack
 - [x] F14-T1 — split / merge + placeholder values
 - [x] F15-T1 — regenerate
-- [ ] F16-T1 — note autosave + content-selection flags
+- [x] F16-T1 — note autosave + content-selection flags
 - [ ] F17-T1 — rebuild / keep + flag state machine
 - [ ] F18-T1 — versioning (save / restore)
 - [ ] F19-T1 — export ZIP + projections
