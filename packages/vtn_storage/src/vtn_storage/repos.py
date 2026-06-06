@@ -1345,6 +1345,81 @@ class JobRepository:
                     raise RuntimeError(f"note update failed: {job_id}")
         return {"status": "ok", "note": self._note_view_from_row(updated)}
 
+    def rebuild_note(
+        self,
+        job_id: UUID,
+        *,
+        expected_etag: str,
+        assemble_markdown: Callable[[list[dict[str, Any]]], str],
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                note = self._locked_note_with_etag(cursor, job_id)
+                current_etag = _etag(note["updated_at"])
+                if current_etag != expected_etag:
+                    return {"status": "stale_write", "etag": current_etag}
+                markdown = assemble_markdown(self._drafted_clip_rows(cursor, job_id))
+                cursor.execute(
+                    """
+                    UPDATE notes
+                    SET markdown = %s,
+                        is_polished = false,
+                        clips_dirty = false,
+                        updated_at = now()
+                    WHERE job_id = %s
+                    RETURNING markdown, include_summary, include_transcript,
+                              is_polished, clips_dirty, updated_at
+                    """,
+                    (markdown, job_id),
+                )
+                rebuilt: dict[str, Any] | None = cursor.fetchone()
+                if rebuilt is None:
+                    raise RuntimeError(f"note rebuild failed: {job_id}")
+                seq = self._freeze_version(cursor, job_id, "auto_rebuild", rebuilt)
+                cursor.execute(
+                    """
+                    UPDATE notes
+                    SET built_from_version = %s,
+                        updated_at = now()
+                    WHERE job_id = %s
+                    RETURNING markdown, include_summary, include_transcript,
+                              is_polished, clips_dirty, updated_at
+                    """,
+                    (seq, job_id),
+                )
+                updated: dict[str, Any] | None = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"note rebuild finalization failed: {job_id}")
+        return {"status": "ok", "note": self._note_view_from_row(updated)}
+
+    def keep_note(
+        self,
+        job_id: UUID,
+        *,
+        expected_etag: str,
+    ) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                note = self._locked_note_with_etag(cursor, job_id)
+                current_etag = _etag(note["updated_at"])
+                if current_etag != expected_etag:
+                    return {"status": "stale_write", "etag": current_etag}
+                cursor.execute(
+                    """
+                    UPDATE notes
+                    SET clips_dirty = false,
+                        updated_at = now()
+                    WHERE job_id = %s
+                    RETURNING markdown, include_summary, include_transcript,
+                              is_polished, clips_dirty, updated_at
+                    """,
+                    (job_id,),
+                )
+                updated: dict[str, Any] | None = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"note keep failed: {job_id}")
+        return {"status": "ok", "note": self._note_view_from_row(updated)}
+
     def _locked_note_with_etag(self, cursor: Any, job_id: UUID) -> dict[str, Any]:
         cursor.execute(
             """
@@ -1467,7 +1542,7 @@ class JobRepository:
         job_id: UUID,
         kind: str,
         note: dict[str, Any],
-    ) -> None:
+    ) -> int:
         clips = self._drafted_clip_rows(cursor, job_id)
         settings = {
             "is_polished": note["is_polished"],
@@ -1500,6 +1575,7 @@ class JobRepository:
                 Jsonb(_clip_snapshot(clips)),
             ),
         )
+        return cast(int, seq)
 
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:

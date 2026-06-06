@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import ValidationError
+from vtn_notes.assemble import assemble_markdown
 from vtn_storage.repos import JobRepository
 
 from vtn_api.auth import require_session
@@ -64,6 +65,34 @@ def patch_note(
         include_summary=body.include_summary,
         include_transcript=body.include_transcript,
     )
+    return _note_write_response(result)
+
+
+@router.post("/jobs/{job_id}/note/rebuild", response_model=NoteView)
+def rebuild_note(
+    job_id: UUID,
+    session: SessionDep,
+    repo: RepoDep,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> NoteView:
+    del session
+    if if_match is None:
+        raise ApiError("stale_write", "If-Match is required", 412)
+    result = repo.rebuild_note(job_id, expected_etag=if_match, assemble_markdown=assemble_markdown)
+    return _note_write_response(result)
+
+
+@router.post("/jobs/{job_id}/note/keep", response_model=NoteView)
+def keep_note(
+    job_id: UUID,
+    session: SessionDep,
+    repo: RepoDep,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> NoteView:
+    del session
+    if if_match is None:
+        raise ApiError("stale_write", "If-Match is required", 412)
+    result = repo.keep_note(job_id, expected_etag=if_match)
     return _note_write_response(result)
 
 
