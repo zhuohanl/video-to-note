@@ -439,6 +439,76 @@ class JobRepository:
                     (summary, summary, scene_at_sec, scene_blob_path, clip_id),
                 )
 
+    def drafted_clip_rows(self, job_id: UUID) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, order_index, start_sec, end_sec, title, summary,
+                           scene_at_sec, scene_blob_path, scene_caption, scene_source,
+                           needs_regen
+                    FROM clips
+                    WHERE job_id = %s
+                    ORDER BY order_index
+                    """,
+                    (job_id,),
+                )
+                return list(cursor.fetchall())
+
+    def create_initial_note(self, job_id: UUID, markdown: str, clips: list[dict[str, Any]]) -> None:
+        snapshot = [
+            {
+                "id": str(clip["id"]),
+                "order_index": clip["order_index"],
+                "start_sec": str(clip["start_sec"]),
+                "end_sec": str(clip["end_sec"]),
+                "title": clip["title"],
+                "summary": clip["summary"],
+                "scene_at_sec": str(clip["scene_at_sec"]),
+                "scene_blob_path": clip["scene_blob_path"],
+                "scene_caption": clip["scene_caption"],
+                "scene_source": clip["scene_source"],
+                "needs_regen": clip["needs_regen"],
+            }
+            for clip in clips
+        ]
+        settings = {
+            "is_polished": False,
+            "include_summary": True,
+            "include_transcript": False,
+        }
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO notes (
+                        job_id, markdown, include_summary, include_transcript,
+                        is_polished, clips_dirty, built_from_version
+                    )
+                    VALUES (%s, %s, true, false, false, false, 1)
+                    ON CONFLICT (job_id) DO UPDATE
+                    SET markdown = EXCLUDED.markdown,
+                        include_summary = true,
+                        include_transcript = false,
+                        is_polished = false,
+                        clips_dirty = false,
+                        built_from_version = 1,
+                        updated_at = now()
+                    """,
+                    (job_id, markdown),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO note_versions (
+                        job_id, seq, label, kind, is_baseline,
+                        note_markdown, note_settings, clips_snapshot
+                    )
+                    VALUES (%s, 1, 'v1', 'initial', true, %s, %s, %s)
+                    ON CONFLICT (job_id, seq) DO NOTHING
+                    """,
+                    (job_id, markdown, Jsonb(settings), Jsonb(snapshot)),
+                )
+
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:
