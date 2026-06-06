@@ -6,7 +6,6 @@ import { ContentSelector } from "../../../components/content-selector/content-se
 import { DocEditor } from "../../../components/doc-editor/doc-editor";
 import { VersionHistory } from "../../../components/version-history/version-history";
 import {
-  ClipView,
   ClipsView,
   NoteView,
   VersionView,
