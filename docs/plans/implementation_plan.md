@@ -278,7 +278,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] P1-T1 — domain models + enums + state machine
 - [x] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
 - [x] P1-T3 — API request/response schemas + error envelope
-- [ ] P1-T4 — SSE event models
+- [x] P1-T4 — SSE event models
 - [ ] P1-T5 — storage Protocols + InMemory/Local impls + repos
 - [ ] P1-T6 — invariant module (C5)
 - [ ] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
@@ -563,10 +563,10 @@ matches C2 byte-for-byte. *(spec: API contract)*
 
 **Files:** `apps/api/vtn_api/events.py`, `tests/contracts/test_events.py`.
 
-- [ ] One model per event `type` with the spec payloads; `to_sse(row)` renders
+- [x] One model per event `type` with the spec payloads; `to_sse(row)` renders
   `id: {job_events.id}\nevent: {type}\ndata: {json}\n\n`.
-- [ ] Test: each event type serializes to a well-formed SSE frame with an `id:` line for replay.
-- [ ] Run → PASS. `git commit -m "P1: SSE event models"`
+- [x] Test: each event type serializes to a well-formed SSE frame with an `id:` line for replay.
+- [x] Run → PASS. `git commit -m "P1: SSE event models"`
 
 **Acceptance:** test exits 0; every C3 event type covered. *(spec: Event contract)*
 
