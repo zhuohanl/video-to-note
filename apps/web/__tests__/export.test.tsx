@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ExportPage from "../app/export/[jobId]/page";
+import { ExportClient } from "../app/export/[jobId]/client";
+import { followDownload } from "../lib/navigation";
+
+vi.mock("../lib/navigation", () => ({
+  followDownload: vi.fn(),
+}));
 
 function json(body: object, status = 200) {
   return new Response(JSON.stringify(body), { status });
@@ -10,7 +15,6 @@ function json(body: object, status = 200) {
 describe("export page", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
-    vi.stubGlobal("open", vi.fn());
   });
 
   afterEach(() => {
@@ -41,7 +45,7 @@ describe("export page", () => {
       )
       .mockResolvedValueOnce(json({ download_url: "local://exports/job-1.zip" }));
 
-    render(<ExportPage params={{ jobId: "job-1" }} />);
+    render(<ExportClient jobId="job-1" />);
 
     expect(await screen.findByText("2 sections")).toBeInTheDocument();
     expect(screen.getByText("2 screenshots")).toBeInTheDocument();
@@ -57,6 +61,6 @@ describe("export page", () => {
         method: "POST",
       }),
     );
-    expect(open).toHaveBeenCalledWith("local://exports/job-1.zip", "_self");
+    expect(followDownload).toHaveBeenCalledWith("local://exports/job-1.zip");
   });
 });

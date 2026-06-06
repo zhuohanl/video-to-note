@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ReviewPage from "../app/review/[jobId]/page";
+import { ReviewClient } from "../app/review/[jobId]/client";
 
 const note = {
   markdown: "## 1. Intro\n\nOriginal prose",
@@ -54,7 +54,7 @@ describe("review page", () => {
       .mockResolvedValueOnce(json({ ...note, markdown: "Edited prose", etag: '"note-v2"' }))
       .mockResolvedValueOnce(json({ ...clip, scene_caption: "Edited caption", etag: '"clip-v2"' }));
 
-    render(<ReviewPage params={{ jobId: "job-1" }} />);
+    renderReviewPage();
     const editor = await screen.findByLabelText("Markdown editor");
     fireEvent.change(editor, { target: { value: "Edited prose" } });
     expect(fetch).toHaveBeenCalledTimes(3);
@@ -99,7 +99,7 @@ describe("review page", () => {
         }),
       );
 
-    render(<ReviewPage params={{ jobId: "job-1" }} />);
+    renderReviewPage();
     await screen.findByLabelText("Markdown editor");
 
     fireEvent.click(screen.getByLabelText("Transcript"));
@@ -127,7 +127,7 @@ describe("review page", () => {
       .mockResolvedValueOnce(json({ ...note, clips_dirty: false, etag: '"note-v2"' }))
       .mockResolvedValueOnce(json({ status: "restored" }));
 
-    render(<ReviewPage params={{ jobId: "job-1" }} />);
+    renderReviewPage();
     expect(await screen.findByText("Clips changed since this note was polished")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
@@ -149,3 +149,7 @@ describe("review page", () => {
     );
   });
 });
+
+function renderReviewPage() {
+  render(<ReviewClient jobId="job-1" />);
+}

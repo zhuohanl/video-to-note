@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import EditPage from "../app/edit/[jobId]/page";
+import { EditClient } from "../app/edit/[jobId]/client";
 
 type Listener = (event: MessageEvent) => void;
 
@@ -49,7 +49,7 @@ describe("edit SSE", () => {
   });
 
   it("fills lanes from SSE events and unlocks tools only when done", () => {
-    render(<EditPage params={{ jobId: "job-1" }} />);
+    renderEditPage();
 
     expect(screen.getByText("Preparing")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Split" })).toBeDisabled();
@@ -85,7 +85,8 @@ describe("edit SSE", () => {
   });
 
   it("reconnects with the last event id", () => {
-    render(<EditPage params={{ jobId: "job-1" }} />);
+    renderEditPage();
+    expect(screen.getByText("Preparing")).toBeInTheDocument();
 
     const source = MockEventSource.instances[0];
     act(() => source.emit("stage", { stage: "transcribe" }, "7"));
@@ -97,3 +98,7 @@ describe("edit SSE", () => {
     expect(MockEventSource.instances[1].url).toBe("/jobs/job-1/events?last_event_id=7");
   });
 });
+
+function renderEditPage() {
+  render(<EditClient jobId="job-1" />);
+}

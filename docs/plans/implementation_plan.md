@@ -326,7 +326,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F23-T2 — split/merge/set-scene/regenerate + inspector + modal
 - [x] F24-T1 — review doc editor + caption + content selector + versions + rebuild banner
 - [x] F25-T1 — export page
-- [ ] P5-E1 — `[TEST-E2E]` Playwright journey (mocked backend)
+- [x] P5-E1 — `[TEST-E2E]` Playwright journey (mocked backend)
 - [ ] **P5 phase gate** — component tests + Playwright green; coverage; reviewer pass
 
 ### P6 — Infra, CI/CD, eval, real queue, docs

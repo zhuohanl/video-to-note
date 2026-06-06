@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SubmitPage from "../app/submit/page";
-import { MAX_EXAMPLE_BYTES } from "../app/submit/page";
+import { MAX_EXAMPLE_BYTES } from "../app/submit/constants";
 
 const push = vi.fn();
 

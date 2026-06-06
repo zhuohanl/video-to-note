@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import EditPage from "../app/edit/[jobId]/page";
+import { EditClient } from "../app/edit/[jobId]/client";
 
 class MockEventSource {
   constructor(readonly url: string) {}
@@ -69,7 +69,7 @@ describe("edit tools", () => {
       .mockResolvedValueOnce(json({ error: { code: "needs_ack", message: "Needs ack" } }, 409))
       .mockResolvedValueOnce(json({ ...clipA, summary: "Edited summary", etag: '"clip-a-v2"' }));
 
-    render(<EditPage params={{ jobId: "job-1" }} />);
+    renderEditPage();
     await screen.findByDisplayValue("Original summary");
     expect(screen.getByText("Note will refresh")).toBeInTheDocument();
 
@@ -104,7 +104,7 @@ describe("edit tools", () => {
       .mockResolvedValueOnce(json(noteView(false)))
       .mockResolvedValueOnce(json({ ...refreshed, summary: "Local edit", etag: '"clip-a-v3"' }));
 
-    render(<EditPage params={{ jobId: "job-1" }} />);
+    renderEditPage();
     await screen.findByDisplayValue("Original summary");
     fireEvent.change(screen.getByLabelText("Summary"), { target: { value: "Local edit" } });
     fireEvent.click(screen.getByRole("button", { name: "Save clip" }));
@@ -137,7 +137,7 @@ describe("edit tools", () => {
       .mockResolvedValueOnce(json(clipsView([regenerated], '"clips-v3"')))
       .mockResolvedValueOnce(json({ scene_at_sec: "2.000", etag: '"clip-a-v4"' }));
 
-    render(<EditPage params={{ jobId: "job-1" }} />);
+    renderEditPage();
     await screen.findByText("Needs regeneration");
 
     fireEvent.click(screen.getByRole("button", { name: "Restore AI summary" }));
@@ -174,3 +174,7 @@ describe("edit tools", () => {
     });
   });
 });
+
+function renderEditPage() {
+  render(<EditClient jobId="job-1" />);
+}

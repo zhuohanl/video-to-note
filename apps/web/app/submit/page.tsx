@@ -11,8 +11,7 @@ import {
   PromptDepth,
   createJob,
 } from "../../lib/api";
-
-export const MAX_EXAMPLE_BYTES = 256 * 1024;
+import { MAX_EXAMPLE_BYTES } from "./constants";
 
 const DEPTHS: Array<{ label: string; value: PromptDepth }> = [
   { label: "Thorough", value: "thorough" },
