@@ -31,6 +31,11 @@ async def _noop(context: StageContext) -> None:
     del context
 
 
+async def _mark_done(context: StageContext) -> None:
+    context.repo.mark_review_ready(context.job_id)
+    context.repo.emit_event(context.job_id, "done", {})
+
+
 @dataclass(frozen=True)
 class StageHandlers:
     resolving: StageFn = _noop
@@ -40,6 +45,7 @@ class StageHandlers:
     extract_style: StageFn = _noop
     segmenting: StageFn = _noop
     drafting: StageFn = _noop
+    assemble: StageFn = _mark_done
 
 
 async def _run_linear_stage(
@@ -92,5 +98,6 @@ async def run(
 
     await _run_linear_stage(repo, job_id, attempt, JobStage.segmenting, handlers.segmenting)
     await _run_linear_stage(repo, job_id, attempt, JobStage.drafting, handlers.drafting)
-    repo.mark_review_ready(job_id)
-    repo.emit_event(job_id, "done", {})
+    await handlers.assemble(
+        StageContext(job_id=job_id, attempt=attempt, stage="review_ready", repo=repo)
+    )
