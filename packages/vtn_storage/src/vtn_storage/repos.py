@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import psycopg
@@ -15,6 +16,15 @@ from vtn_core.models import Job, JobStage, JobStatus, PromptDepth, SourceType, T
 class JobSubmission:
     job_id: UUID
     cost_estimate: dict[str, Any]
+
+
+ArtifactKind = Literal["proxy", "transcript", "visual"]
+
+_ARTIFACT_COLUMNS: dict[ArtifactKind, tuple[str, str]] = {
+    "proxy": ("proxy_state", "proxy_owner_job"),
+    "transcript": ("transcript_state", "transcript_owner_job"),
+    "visual": ("visual_state", "visual_owner_job"),
+}
 
 
 def event_channel(job_id: UUID) -> str:
@@ -240,6 +250,96 @@ class JobRepository:
                 if row is None:
                     raise RuntimeError(f"video not found: {video_id}")
                 return cast(str | None, row[0])
+
+    def artifact_state(self, video_id: UUID, artifact: ArtifactKind) -> str:
+        state_column, _ = _ARTIFACT_COLUMNS[artifact]
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT {state_column} FROM videos WHERE id = %s", (video_id,))
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"video not found: {video_id}")
+                return cast(str, row[0])
+
+    def claim_artifact(self, video_id: UUID, job_id: UUID, artifact: ArtifactKind) -> bool:
+        state_column, owner_column = _ARTIFACT_COLUMNS[artifact]
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE videos
+                    SET {state_column} = 'building',
+                        {owner_column} = %s,
+                        artifacts_updated_at = now()
+                    WHERE id = %s AND {state_column} = 'absent'
+                    RETURNING id
+                    """,
+                    (job_id, video_id),
+                )
+                return cursor.fetchone() is not None
+
+    def reclaim_stale(
+        self,
+        video_id: UUID,
+        job_id: UUID,
+        artifact: ArtifactKind,
+        *,
+        stale_after: timedelta,
+    ) -> bool:
+        state_column, owner_column = _ARTIFACT_COLUMNS[artifact]
+        stale_before = datetime.now(UTC) - stale_after
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE videos
+                    SET {owner_column} = %s,
+                        artifacts_updated_at = now()
+                    WHERE id = %s
+                      AND {state_column} = 'building'
+                      AND artifacts_updated_at < %s
+                    RETURNING id
+                    """,
+                    (job_id, video_id, stale_before),
+                )
+                return cursor.fetchone() is not None
+
+    def wait_ready(
+        self,
+        video_id: UUID,
+        artifact: ArtifactKind,
+        *,
+        timeout_sec: float,
+        poll_interval_sec: float,
+    ) -> bool:
+        import time
+
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            state = self.artifact_state(video_id, artifact)
+            if state == "ready":
+                return True
+            if state == "absent":
+                return False
+            time.sleep(poll_interval_sec)
+        return self.artifact_state(video_id, artifact) == "ready"
+
+    def release_on_fail(self, video_id: UUID, job_id: UUID, artifact: ArtifactKind) -> None:
+        state_column, owner_column = _ARTIFACT_COLUMNS[artifact]
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE videos
+                    SET {state_column} = 'absent',
+                        {owner_column} = NULL,
+                        artifacts_updated_at = now()
+                    WHERE id = %s
+                      AND {state_column} = 'building'
+                      AND {owner_column} = %s
+                    """,
+                    (video_id, job_id),
+                )
 
     def set_proxy_ready(self, video_id: UUID, blob_path: str) -> None:
         with psycopg.connect(self.database_url) as connection:

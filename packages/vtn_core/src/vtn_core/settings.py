@@ -3,6 +3,12 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class ArtifactSettings(BaseModel):
+    stale_timeout_sec: float = 900.0
+    wait_timeout_sec: float = 30.0
+    poll_interval_sec: float = 0.1
+
+
 class SegmentationSettings(BaseModel):
     merge_window_sec: float = 4.0
     min_score: float = 0.5

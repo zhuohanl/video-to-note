@@ -298,7 +298,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] **P2 phase gate** — mocked e2e green; invariants pass; coverage; reviewer pass
 
 ### P3 — Real media + AI + style + cost
-- [ ] F3-T1 — per-artifact CAS claim/wait/recover
+- [x] F3-T1 — per-artifact CAS claim/wait/recover
 - [ ] F2/F4-T2 (real) — resolvers + yt-dlp acquirer
 - [ ] F5/F6-T2 (real) — transcript chain + ffmpeg/OCR/pHash
 - [ ] F8/F9-T2 (real) — Foundry chat + embeddings
