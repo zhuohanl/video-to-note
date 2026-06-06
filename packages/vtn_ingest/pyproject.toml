@@ -2,10 +2,11 @@
 name = "vtn-ingest"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["vtn-core"]
+dependencies = ["vtn-core", "vtn-storage", "yt-dlp>=2026.1.0"]
 
 [tool.uv.sources]
 vtn-core = { workspace = true }
+vtn-storage = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

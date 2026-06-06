@@ -53,10 +53,16 @@ dev = [
     "vtn-visual",
     "vtn-worker",
     "pytest-cov>=7.1.0",
+    "imageio-ffmpeg>=0.6.0",
 ]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+markers = [
+    "real_infra: opt-in tests that use live external services or paid cloud resources",
+]
 
 [tool.uv.workspace]
 members = [

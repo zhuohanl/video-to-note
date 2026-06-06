@@ -299,7 +299,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 ### P3 — Real media + AI + style + cost
 - [x] F3-T1 — per-artifact CAS claim/wait/recover
-- [ ] F2/F4-T2 (real) — resolvers + yt-dlp acquirer
+- [x] F2/F4-T2 (real) — resolvers + yt-dlp acquirer
 - [ ] F5/F6-T2 (real) — transcript chain + ffmpeg/OCR/pHash
 - [ ] F8/F9-T2 (real) — Foundry chat + embeddings
 - [ ] F7-T1 — style extraction + resolution
