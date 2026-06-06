@@ -320,7 +320,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] **P4 phase gate** — mocked e2e (P2-E1+P4-E2) green; coverage; reviewer pass
 
 ### P5 — Frontend
-- [ ] F21-T1 — login + route gating
+- [x] F21-T1 — login + route gating
 - [ ] F22-T1 — submit form + depth + examples + cost banner
 - [ ] F23-T1 — edit SSE consumer + progressive lanes + gated tools
 - [ ] F23-T2 — split/merge/set-scene/regenerate + inspector + modal
