@@ -1,0 +1,7 @@
+[
+  {"start_sec": 0.0, "end_sec": 4.2, "speaker": "Speaker 1", "text": "Welcome to the session."},
+  {"start_sec": 4.2, "end_sec": 10.0, "speaker": "Speaker 1", "text": "We will look at the architecture."},
+  {"start_sec": 10.0, "end_sec": 16.0, "speaker": "Speaker 1", "text": "The worker writes progress into the database."},
+  {"start_sec": 16.0, "end_sec": 22.0, "speaker": "Speaker 1", "text": "The API streams those events to the browser."},
+  {"start_sec": 22.0, "end_sec": 28.0, "speaker": "Speaker 1", "text": "Finally the note is reviewed and exported."}
+]

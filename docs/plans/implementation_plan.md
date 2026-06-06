@@ -261,7 +261,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 ### P0 — Foundation
 - [x] P0-T1 — uv workspace + 10 packages + api/worker scaffold
 - [x] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
-- [ ] P0-T3 — fixtures + `fake` profile skeleton
+- [x] P0-T3 — fixtures + `fake` profile skeleton
 - [ ] P0-S0 — SPIKE: Azure credentials / liveness (gates all real-infra)
 - [ ] P0-S1 — SPIKE: yt-dlp
 - [ ] P0-S2 — SPIKE: ffmpeg
@@ -426,14 +426,14 @@ smoke exits 0. *(spec: Local dev; Deployment and CI/CD)*
 `fixtures/llm/{refinement,summary,style}.json`, `fixtures/examples/sample_note.md`,
 `packages/vtn_ai/src/vtn_ai/fake/__init__.py`, `packages/vtn_ai/src/vtn_ai/profile.py`.
 
-- [ ] Author canned fixtures: a ~5-span transcript, ~6 visual events (mixed types, with phash +
+- [x] Author canned fixtures: a ~5-span transcript, ~6 visual events (mixed types, with phash +
   ocr_text), and deterministic LLM JSON outputs matching the schemas defined in P1.
-- [ ] `FakeChatModel.complete_json(prompt, schema)` returns the matching fixture by a `kind` tag;
+- [x] `FakeChatModel.complete_json(prompt, schema)` returns the matching fixture by a `kind` tag;
   `FakeEmbeddingModel.embed(texts)` returns deterministic vectors (hash-seeded, no `random`).
-- [ ] `get_profile("fake")` returns the wired fake set (C4 table).
-- [ ] Test `tests/unit/test_fake_profile.py`: profile returns all 8 Protocols; fake chat returns
+- [x] `get_profile("fake")` returns the wired fake set (C4 table).
+- [x] Test `tests/unit/test_fake_profile.py`: profile returns all 8 Protocols; fake chat returns
   schema-valid JSON for each `kind`.
-- [ ] Run → PASS. `git commit -m "P0: fixtures + fake profile"`
+- [x] Run → PASS. `git commit -m "P0: fixtures + fake profile"`
 
 **Acceptance:** `uv run pytest tests/unit/test_fake_profile.py -q` exits 0; production packages
 contain no import of `tests/` or `fixtures/` (grep check in the test). *(spec: Local dev — `fake` AI
