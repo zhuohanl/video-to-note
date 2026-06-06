@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -35,6 +36,10 @@ def event_channel(job_id: UUID) -> str:
 
 def _etag(value: Any) -> str:
     return f'"{value.isoformat()}"'
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-") or "clip"
 
 
 def _clip_snapshot(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -588,6 +593,75 @@ class JobRepository:
                     (video_id,),
                 )
                 return list(cursor.fetchall())
+
+    def export_context(self, job_id: UUID) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT j.id, j.video_id, j.status, v.source_url,
+                           p.depth, p.style_profile,
+                           n.markdown, n.include_summary, n.include_transcript,
+                           n.is_polished, n.clips_dirty
+                    FROM jobs j
+                    JOIN videos v ON v.id = j.video_id
+                    JOIN prompts p ON p.job_id = j.id
+                    JOIN notes n ON n.job_id = j.id
+                    WHERE j.id = %s
+                    """,
+                    (job_id,),
+                )
+                job: dict[str, Any] | None = cursor.fetchone()
+                if job is None:
+                    raise RuntimeError(f"job not found: {job_id}")
+                clips = self._drafted_clip_rows(cursor, job_id)
+                for clip in clips:
+                    order = int(clip["order_index"]) + 1
+                    clip["image_name"] = f"images/{order:04d}-{_slug(clip['title'])}.png"
+                cursor.execute(
+                    """
+                    SELECT start_sec, end_sec, text, speaker, source
+                    FROM transcript_spans
+                    WHERE video_id = %s
+                    ORDER BY start_sec
+                    """,
+                    (job["video_id"],),
+                )
+                transcripts = list(cursor.fetchall())
+        return {
+            "job_id": job["id"],
+            "source_url": job["source_url"],
+            "prompt": {"depth": job["depth"], "style_profile": job["style_profile"] or {}},
+            "note": {
+                "markdown": job["markdown"],
+                "include_summary": job["include_summary"],
+                "include_transcript": job["include_transcript"],
+                "is_polished": job["is_polished"],
+                "clips_dirty": job["clips_dirty"],
+            },
+            "clips": clips,
+            "transcripts": transcripts,
+        }
+
+    def record_export(self, job_id: UUID, zip_blob_path: str) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO exports (job_id, zip_blob_path)
+                    VALUES (%s, %s)
+                    """,
+                    (job_id, zip_blob_path),
+                )
+                cursor.execute(
+                    """
+                    UPDATE jobs
+                    SET status = %s,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (JobStatus.exported.value, job_id),
+                )
 
     def replace_clips(self, job_id: UUID, clips: list[dict[str, Any]]) -> None:
         with psycopg.connect(self.database_url) as connection:
