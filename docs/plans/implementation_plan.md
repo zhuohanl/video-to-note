@@ -279,7 +279,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
 - [x] P1-T3 — API request/response schemas + error envelope
 - [x] P1-T4 — SSE event models
-- [ ] P1-T5 — storage Protocols + InMemory/Local impls + repos
+- [x] P1-T5 — storage Protocols + InMemory/Local impls + repos
 - [ ] P1-T6 — invariant module (C5)
 - [ ] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
 
@@ -575,12 +575,12 @@ matches C2 byte-for-byte. *(spec: API contract)*
 **Files:** `vtn_storage/queue.py`, `vtn_storage/blob.py`, `vtn_storage/repos.py`,
 `tests/contracts/test_storage.py`.
 
-- [ ] `QueueProvider` + `InMemoryQueue` (and a SQLite-backed variant for the worker process);
+- [x] `QueueProvider` + `InMemoryQueue` (and a SQLite-backed variant for the worker process);
   `BlobStore` + `LocalBlobStore` (Azurite via connection string, or tmp). Repos = thin SQLAlchemy
   data-access objects per aggregate (jobs, videos, clips, notes, versions, events, costs, exports).
-- [ ] Test (real Postgres + Azurite): enqueue→receive→complete; dead_letter path; blob put→get→
+- [x] Test (real Postgres + Azurite): enqueue→receive→complete; dead_letter path; blob put→get→
   url_for→delete_prefix; a repo insert/select round-trip for `jobs`.
-- [ ] Run → PASS. `git commit -m "P1: storage protocols + impls + repos"`
+- [x] Run → PASS. `git commit -m "P1: storage protocols + impls + repos"`
 
 **Acceptance:** test exits 0 against Postgres+Azurite; `InMemoryQueue` and `ServiceBusQueue`
 (stubbed until P6) share the `QueueProvider` Protocol. *(spec: Queue abstraction; Architecture)*

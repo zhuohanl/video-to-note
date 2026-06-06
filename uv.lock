@@ -1697,11 +1697,15 @@ name = "vtn-storage"
 version = "0.1.0"
 source = { editable = "packages/vtn_storage" }
 dependencies = [
+    { name = "psycopg", extra = ["binary"] },
     { name = "vtn-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "vtn-core", editable = "packages/vtn_core" }]
+requires-dist = [
+    { name = "psycopg", extras = ["binary"] },
+    { name = "vtn-core", editable = "packages/vtn_core" },
+]
 
 [[package]]
 name = "vtn-style"

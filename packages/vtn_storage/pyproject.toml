@@ -2,7 +2,7 @@
 name = "vtn-storage"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["vtn-core"]
+dependencies = ["psycopg[binary]", "vtn-core"]
 
 [tool.uv.sources]
 vtn-core = { workspace = true }
