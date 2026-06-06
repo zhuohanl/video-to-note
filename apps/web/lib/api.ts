@@ -238,6 +238,12 @@ export async function restoreVersion(
   });
 }
 
+export async function exportJob(jobId: string): Promise<{ download_url: string }> {
+  return requestJson<{ download_url: string }>(`/jobs/${jobId}/export`, {
+    method: "POST",
+  });
+}
+
 async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(url, { credentials: "include", ...init });
   if (!response.ok) {
