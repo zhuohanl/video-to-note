@@ -380,6 +380,65 @@ class JobRepository:
                     ],
                 )
 
+    def clip_rows(self, job_id: UUID) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, order_index, start_sec, end_sec, title, summary_seed,
+                           classification
+                    FROM clips
+                    WHERE job_id = %s
+                    ORDER BY order_index
+                    """,
+                    (job_id,),
+                )
+                return list(cursor.fetchall())
+
+    def visual_events_for_clip(
+        self,
+        video_id: UUID,
+        start_sec: Decimal,
+        end_sec: Decimal,
+    ) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT at_sec, event_type, confidence, ocr_text, phash, frame_blob_path
+                    FROM visual_events
+                    WHERE video_id = %s AND at_sec >= %s AND at_sec <= %s
+                    ORDER BY at_sec
+                    """,
+                    (video_id, start_sec, end_sec),
+                )
+                return list(cursor.fetchall())
+
+    def update_clip_draft(
+        self,
+        *,
+        clip_id: UUID,
+        summary: str,
+        scene_at_sec: Decimal,
+        scene_blob_path: str,
+    ) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE clips
+                    SET summary = %s,
+                        ai_summary = %s,
+                        status = 'ready',
+                        scene_at_sec = %s,
+                        scene_blob_path = %s,
+                        scene_source = 'auto',
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (summary, summary, scene_at_sec, scene_blob_path, clip_id),
+                )
+
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:
