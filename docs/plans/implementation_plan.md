@@ -317,7 +317,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] F18-T1 — versioning (save / restore)
 - [x] F19-T1 — export ZIP + projections
 - [x] P4-E2 — `[TEST-E2E-MOCK]` full edit→review→export round-trip
-- [ ] **P4 phase gate** — mocked e2e (P2-E1+P4-E2) green; coverage; reviewer pass
+- [x] **P4 phase gate** — mocked e2e (P2-E1+P4-E2) green; coverage; reviewer pass
 
 ### P5 — Frontend
 - [ ] F21-T1 — login + route gating
