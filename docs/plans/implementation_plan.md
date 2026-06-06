@@ -309,7 +309,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 ### P4 — Editing & reconciliation backend
 - [x] F12-T1 — media serving + frame-on-demand
-- [ ] F13-T1 — `PATCH /clips/{id}` + auto-sync / needs_ack
+- [x] F13-T1 — `PATCH /clips/{id}` + auto-sync / needs_ack
 - [ ] F14-T1 — split / merge + placeholder values
 - [ ] F15-T1 — regenerate
 - [ ] F16-T1 — note autosave + content-selection flags

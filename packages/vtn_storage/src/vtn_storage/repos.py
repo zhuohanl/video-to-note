@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -34,6 +35,25 @@ def event_channel(job_id: UUID) -> str:
 
 def _etag(value: Any) -> str:
     return f'"{value.isoformat()}"'
+
+
+def _clip_snapshot(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": str(clip["id"]),
+            "order_index": clip["order_index"],
+            "start_sec": str(clip["start_sec"]),
+            "end_sec": str(clip["end_sec"]),
+            "title": clip["title"],
+            "summary": clip["summary"],
+            "scene_at_sec": str(clip["scene_at_sec"]) if clip["scene_at_sec"] is not None else None,
+            "scene_blob_path": clip["scene_blob_path"],
+            "scene_caption": clip["scene_caption"],
+            "scene_source": clip["scene_source"],
+            "needs_regen": clip["needs_regen"],
+        }
+        for clip in clips
+    ]
 
 
 class JobRepository:
@@ -730,21 +750,135 @@ class JobRepository:
                     (summary, summary, scene_at_sec, scene_blob_path, clip_id),
                 )
 
-    def drafted_clip_rows(self, job_id: UUID) -> list[dict[str, Any]]:
+    def patch_clip_content(
+        self,
+        clip_id: UUID,
+        *,
+        expected_etag: str,
+        fields: set[str],
+        title: str | None = None,
+        summary: str | None = None,
+        scene_caption: str | None = None,
+        ack: bool = False,
+        assemble_markdown: Callable[[list[dict[str, Any]]], str],
+    ) -> dict[str, Any]:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, order_index, start_sec, end_sec, title, summary,
-                           scene_at_sec, scene_blob_path, scene_caption, scene_source,
-                           needs_regen
-                    FROM clips
-                    WHERE job_id = %s
-                    ORDER BY order_index
+                    SELECT c.id, c.job_id, c.updated_at, c.summary, c.ai_summary,
+                           j.status
+                    FROM clips c
+                    JOIN jobs j ON j.id = c.job_id
+                    WHERE c.id = %s
+                    FOR UPDATE OF c, j
                     """,
-                    (job_id,),
+                    (clip_id,),
                 )
-                return list(cursor.fetchall())
+                clip: dict[str, Any] | None = cursor.fetchone()
+                if clip is None:
+                    raise RuntimeError(f"clip not found: {clip_id}")
+                if clip["status"] not in {JobStatus.review_ready.value, JobStatus.exported.value}:
+                    return {"status": "job_not_review_ready"}
+
+                current_etag = _etag(clip["updated_at"])
+                if current_etag != expected_etag:
+                    return {"status": "stale_write", "etag": current_etag}
+
+                cursor.execute(
+                    """
+                    SELECT markdown, include_summary, include_transcript,
+                           is_polished, clips_dirty
+                    FROM notes
+                    WHERE job_id = %s
+                    FOR UPDATE
+                    """,
+                    (clip["job_id"],),
+                )
+                note: dict[str, Any] | None = cursor.fetchone()
+                if note is None:
+                    raise RuntimeError(f"note not found for job: {clip['job_id']}")
+                if note["is_polished"] and not ack:
+                    return {"status": "needs_ack"}
+                if note["is_polished"]:
+                    self._freeze_version(cursor, clip["job_id"], "auto_pre_change", note)
+
+                assignments = ["updated_at = now()"]
+                values: list[Any] = []
+                if "title" in fields:
+                    assignments.append("title = %s")
+                    values.append(title)
+                if "summary" in fields:
+                    restored_summary = clip["ai_summary"] if summary is None else summary
+                    if summary is not None and clip["ai_summary"] is None:
+                        assignments.append("ai_summary = %s")
+                        values.append(clip["summary"])
+                    assignments.append("summary = %s")
+                    values.append(restored_summary)
+                if "scene_caption" in fields:
+                    assignments.append("scene_caption = %s")
+                    values.append(scene_caption)
+
+                values.append(clip_id)
+                cursor.execute(
+                    f"""
+                    UPDATE clips
+                    SET {", ".join(assignments)}
+                    WHERE id = %s
+                    RETURNING id, job_id, order_index, start_sec, end_sec, title, summary,
+                              scene_caption, status, scene_at_sec, scene_blob_path,
+                              scene_source, needs_regen, updated_at
+                    """,
+                    values,
+                )
+                updated: dict[str, Any] | None = cursor.fetchone()
+                if updated is None:
+                    raise RuntimeError(f"clip update failed: {clip_id}")
+
+                if note["is_polished"]:
+                    cursor.execute(
+                        """
+                        UPDATE notes
+                        SET clips_dirty = true,
+                            updated_at = now()
+                        WHERE job_id = %s
+                        """,
+                        (clip["job_id"],),
+                    )
+                else:
+                    rows = self._drafted_clip_rows(cursor, clip["job_id"])
+                    cursor.execute(
+                        """
+                        UPDATE notes
+                        SET markdown = %s,
+                            is_polished = false,
+                            clips_dirty = false,
+                            updated_at = now()
+                        WHERE job_id = %s
+                        """,
+                        (assemble_markdown(rows), clip["job_id"]),
+                    )
+
+        return {"status": "ok", "clip": self._clip_view_from_row(updated)}
+
+    def drafted_clip_rows(self, job_id: UUID) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                return self._drafted_clip_rows(cursor, job_id)
+
+    def _drafted_clip_rows(self, cursor: Any, job_id: UUID) -> list[dict[str, Any]]:
+        cursor.execute(
+            """
+            SELECT id, order_index, start_sec, end_sec, title, summary,
+                   scene_at_sec, scene_blob_path, scene_caption, scene_source,
+                   needs_regen
+            FROM clips
+            WHERE job_id = %s
+            ORDER BY order_index
+            """,
+            (job_id,),
+        )
+        return list(cursor.fetchall())
 
     def clips_view(self, job_id: UUID) -> dict[str, Any]:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
@@ -765,27 +899,28 @@ class JobRepository:
         clips = []
         etags = []
         for row in rows:
-            etag = f'"{row["updated_at"].isoformat()}"'
+            etag = _etag(row["updated_at"])
             etags.append(etag)
-            scene_blob_path = row["scene_blob_path"]
-            clips.append(
-                {
-                    "id": row["id"],
-                    "order_index": row["order_index"],
-                    "start_sec": row["start_sec"],
-                    "end_sec": row["end_sec"],
-                    "title": row["title"],
-                    "summary": row["summary"],
-                    "scene_caption": row["scene_caption"],
-                    "status": row["status"],
-                    "scene_at_sec": row["scene_at_sec"],
-                    "scene_url": f"local://{scene_blob_path}" if scene_blob_path else None,
-                    "scene_source": row["scene_source"],
-                    "needs_regen": row["needs_regen"],
-                    "etag": etag,
-                }
-            )
+            clips.append(self._clip_view_from_row(row))
         return {"clips": clips, "collection_etag": max(etags) if etags else '""'}
+
+    def _clip_view_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        scene_blob_path = row["scene_blob_path"]
+        return {
+            "id": row["id"],
+            "order_index": row["order_index"],
+            "start_sec": row["start_sec"],
+            "end_sec": row["end_sec"],
+            "title": row["title"],
+            "summary": row["summary"],
+            "scene_caption": row["scene_caption"],
+            "status": row["status"],
+            "scene_at_sec": row["scene_at_sec"],
+            "scene_url": f"local://{scene_blob_path}" if scene_blob_path else None,
+            "scene_source": row["scene_source"],
+            "needs_regen": row["needs_regen"],
+            "etag": _etag(row["updated_at"]),
+        }
 
     def note_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
@@ -812,22 +947,7 @@ class JobRepository:
         }
 
     def create_initial_note(self, job_id: UUID, markdown: str, clips: list[dict[str, Any]]) -> None:
-        snapshot = [
-            {
-                "id": str(clip["id"]),
-                "order_index": clip["order_index"],
-                "start_sec": str(clip["start_sec"]),
-                "end_sec": str(clip["end_sec"]),
-                "title": clip["title"],
-                "summary": clip["summary"],
-                "scene_at_sec": str(clip["scene_at_sec"]),
-                "scene_blob_path": clip["scene_blob_path"],
-                "scene_caption": clip["scene_caption"],
-                "scene_source": clip["scene_source"],
-                "needs_regen": clip["needs_regen"],
-            }
-            for clip in clips
-        ]
+        snapshot = _clip_snapshot(clips)
         settings = {
             "is_polished": False,
             "include_summary": True,
@@ -864,6 +984,46 @@ class JobRepository:
                     """,
                     (job_id, markdown, Jsonb(settings), Jsonb(snapshot)),
                 )
+
+    def _freeze_version(
+        self,
+        cursor: Any,
+        job_id: UUID,
+        kind: str,
+        note: dict[str, Any],
+    ) -> None:
+        clips = self._drafted_clip_rows(cursor, job_id)
+        settings = {
+            "is_polished": note["is_polished"],
+            "include_summary": note["include_summary"],
+            "include_transcript": note["include_transcript"],
+        }
+        cursor.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM note_versions WHERE job_id = %s",
+            (job_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise RuntimeError("version sequence query returned no row")
+        seq = row["seq"]
+        cursor.execute(
+            """
+            INSERT INTO note_versions (
+                job_id, seq, label, kind, is_baseline,
+                note_markdown, note_settings, clips_snapshot
+            )
+            VALUES (%s, %s, %s, %s, false, %s, %s, %s)
+            """,
+            (
+                job_id,
+                seq,
+                f"v{seq}",
+                kind,
+                note["markdown"],
+                Jsonb(settings),
+                Jsonb(_clip_snapshot(clips)),
+            ),
+        )
 
     def get_job_view(self, job_id: UUID) -> dict[str, Any] | None:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
