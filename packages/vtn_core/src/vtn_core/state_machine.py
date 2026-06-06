@@ -13,8 +13,8 @@ LEGAL_STAGE_TRANSITIONS: dict[JobStage, set[JobStage]] = {
 
 LEGAL_STATUS_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
     JobStatus.active: {JobStatus.review_ready, JobStatus.failed, JobStatus.canceled},
-    JobStatus.review_ready: {JobStatus.exported, JobStatus.failed, JobStatus.canceled},
-    JobStatus.exported: {JobStatus.failed, JobStatus.canceled},
+    JobStatus.review_ready: {JobStatus.exported},
+    JobStatus.exported: set(),
     JobStatus.failed: set(),
     JobStatus.canceled: set(),
 }

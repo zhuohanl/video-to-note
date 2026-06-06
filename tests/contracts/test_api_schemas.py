@@ -10,6 +10,7 @@ from vtn_api.schemas import (
     ClipsView,
     ClipView,
     CreateJob,
+    CreateJobResponse,
     CreateVersion,
     ExportView,
     JobView,
@@ -19,6 +20,8 @@ from vtn_api.schemas import (
     PatchClip,
     PatchNote,
     PutNote,
+    SceneView,
+    SetSceneBody,
     SplitBody,
     VersionView,
 )
@@ -31,12 +34,14 @@ def test_endpoint_schemas_accept_good_payloads() -> None:
 
     assert LoginBody(username="local", password="secret").username == "local"
     assert CreateJob(url="https://www.youtube.com/watch?v=abc", depth=PromptDepth.balanced).depth
+    assert CreateJobResponse(job_id=job_id, cost_estimate={"usd": "0.10"}).job_id == job_id
     assert JobView(
         id=job_id,
         status=JobStatus.active,
         stage=JobStage.queued,
+        flags={"is_polished": False, "clips_dirty": False},
         cost={"estimate_usd": "0.10"},
-    ).id == job_id
+    ).flags["clips_dirty"] is False
     clip = ClipView(
         id=clip_id,
         order_index=0,
@@ -49,6 +54,8 @@ def test_endpoint_schemas_accept_good_payloads() -> None:
     assert ClipsView(clips=[clip], collection_etag='"clips-1"').clips[0].id == clip_id
     assert NoteView(markdown="# Note", etag='"note-1"').include_summary is True
     assert PatchClip(title="New title", summary="New summary", scene_caption="Caption").title
+    assert SetSceneBody(at_sec=Decimal("5.000")).at_sec == Decimal("5.000")
+    assert SceneView(asset_url="local://frames/clip.png").asset_url
     assert SplitBody(at_sec=Decimal("5.000")).at_sec == Decimal("5.000")
     assert MergeBody(clip_ids=[clip_id]).clip_ids == [clip_id]
     assert PutNote(markdown="# Edited").markdown == "# Edited"
@@ -63,6 +70,7 @@ def test_endpoint_schemas_accept_good_payloads() -> None:
     [
         (LoginBody, {"username": "", "password": "secret"}),
         (CreateJob, {"url": "not-a-url", "depth": "balanced"}),
+        (SetSceneBody, {"at_sec": -1}),
         (SplitBody, {"at_sec": -1}),
         (MergeBody, {"clip_ids": []}),
         (PatchNote, {"include_summary": False, "include_transcript": False}),

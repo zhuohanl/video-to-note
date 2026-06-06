@@ -34,10 +34,16 @@ class CreateJob(ApiSchema):
         return value
 
 
+class CreateJobResponse(ApiSchema):
+    job_id: UUID
+    cost_estimate: dict[str, Any] = Field(default_factory=dict)
+
+
 class JobView(ApiSchema):
     id: UUID
     status: JobStatus
     stage: JobStage
+    flags: dict[str, Any] = Field(default_factory=dict)
     error_code: str | None = None
     error_message: str | None = None
     cost: dict[str, Any] = Field(default_factory=dict)
@@ -84,6 +90,14 @@ class PatchClip(ApiSchema):
     title: str | None = None
     summary: str | None = None
     scene_caption: str | None = None
+
+
+class SetSceneBody(ApiSchema):
+    at_sec: Decimal = Field(ge=0)
+
+
+class SceneView(ApiSchema):
+    asset_url: str
 
 
 class SplitBody(ApiSchema):

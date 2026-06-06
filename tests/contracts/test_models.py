@@ -168,8 +168,16 @@ def test_state_machine_allows_only_spec_transitions() -> None:
     assert legal_status(models.JobStatus.active, models.JobStatus.failed)
     assert legal_status(models.JobStatus.active, models.JobStatus.canceled)
 
-    with pytest.raises(ValueError):
-        legal_status(models.JobStatus.exported, models.JobStatus.active)
+    illegal_status_transitions = [
+        (models.JobStatus.review_ready, models.JobStatus.failed),
+        (models.JobStatus.review_ready, models.JobStatus.canceled),
+        (models.JobStatus.exported, models.JobStatus.active),
+        (models.JobStatus.exported, models.JobStatus.failed),
+        (models.JobStatus.exported, models.JobStatus.canceled),
+    ]
+    for from_status, to_status in illegal_status_transitions:
+        with pytest.raises(ValueError):
+            legal_status(from_status, to_status)
 
 
 def test_uuid_fields_accept_uuid_instances() -> None:

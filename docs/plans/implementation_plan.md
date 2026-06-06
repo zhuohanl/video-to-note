@@ -281,7 +281,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] P1-T4 — SSE event models
 - [x] P1-T5 — storage Protocols + InMemory/Local impls + repos
 - [x] P1-T6 — invariant module (C5)
-- [ ] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
+- [x] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
 
 ### P2 — MVP pipeline (fake)
 - [ ] F0-T1 — cookie sign/verify + `POST /login`
