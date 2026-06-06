@@ -162,3 +162,10 @@ async def test_sse_replays_events_after_last_event_id_and_requires_cookie(monkey
 
     replayed = await _collect_replay(job_id, last_event_id=2, count=1)
     assert replayed == [{"id": 3, "event": "done", "data": {}}]
+
+    query_replay = client.get(
+        f"/jobs/{job_id}/events?replay_only=true&last_event_id=2",
+        headers=_headers(),
+    )
+    assert query_replay.status_code == 200
+    assert _parse_sse_frame(query_replay.text) == {"id": 3, "event": "done", "data": {}}

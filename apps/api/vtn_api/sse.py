@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from uuid import UUID
 
 import asyncpg  # type: ignore[import-untyped]
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 from vtn_storage.repos import JobRepository, event_channel
 
@@ -72,10 +72,12 @@ def job_events(
     job_id: UUID,
     replay_only: bool = False,
     last_event_id: int | None = Header(default=None, alias="Last-Event-ID"),
+    last_event_id_query: int | None = Query(default=None, alias="last_event_id"),
     session: str = Depends(require_session),
 ) -> StreamingResponse:
     del session
+    replay_from = last_event_id if last_event_id is not None else last_event_id_query
     return StreamingResponse(
-        _event_stream(job_repository(), job_id, last_event_id or 0, replay_only=replay_only),
+        _event_stream(job_repository(), job_id, replay_from or 0, replay_only=replay_only),
         media_type="text/event-stream",
     )
