@@ -17,6 +17,10 @@ class JobSubmission:
     cost_estimate: dict[str, Any]
 
 
+def event_channel(job_id: UUID) -> str:
+    return f"vtn_job_{job_id.hex}"
+
+
 class JobRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
@@ -174,3 +178,35 @@ class JobRepository:
             "error_message": row["error_message"],
             "cost": cost,
         }
+
+    def emit_event(self, job_id: UUID, type: str, payload: dict[str, Any]) -> int:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO job_events (job_id, type, payload)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                    """,
+                    (job_id, type, Jsonb(payload)),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError("event insert returned no id")
+                event_id = cast(int, row[0])
+                cursor.execute("SELECT pg_notify(%s, %s)", (event_channel(job_id), str(event_id)))
+                return event_id
+
+    def list_events_after(self, job_id: UUID, last_event_id: int) -> list[dict[str, Any]]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, job_id, type, payload
+                    FROM job_events
+                    WHERE job_id = %s AND id > %s
+                    ORDER BY id
+                    """,
+                    (job_id, last_event_id),
+                )
+                return list(cursor.fetchall())

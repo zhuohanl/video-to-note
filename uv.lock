@@ -1683,6 +1683,7 @@ name = "vtn-api"
 version = "0.1.0"
 source = { editable = "apps/api" }
 dependencies = [
+    { name = "asyncpg" },
     { name = "bcrypt" },
     { name = "fastapi" },
     { name = "uvicorn" },
@@ -1692,6 +1693,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "fastapi" },
     { name = "uvicorn" },

@@ -286,7 +286,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 ### P2 — MVP pipeline (fake)
 - [x] F0-T1 — cookie sign/verify + `POST /login`
 - [x] F1-T1 — `POST /jobs` + `GET /jobs/{id}`
-- [ ] F11-T1 — event writer + SSE endpoint + replay
+- [x] F11-T1 — event writer + SSE endpoint + replay
 - [ ] P2-W1 — worker consumer + stage runner skeleton
 - [ ] F2-T1 (fake) — resolving + canonical claim + dedup
 - [ ] F4/F5/F6-T1 (fake) — media + transcript + visual stages
