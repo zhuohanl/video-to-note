@@ -1,0 +1,50 @@
+[project]
+name = "video-to-note-v2"
+version = "0.1.0"
+description = "Video-to-Note v2 monorepo workspace"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv.sources]
+vtn-ai = { workspace = true }
+vtn-core = { workspace = true }
+vtn-export = { workspace = true }
+vtn-ingest = { workspace = true }
+vtn-notes = { workspace = true }
+vtn-segment = { workspace = true }
+vtn-storage = { workspace = true }
+vtn-style = { workspace = true }
+vtn-transcript = { workspace = true }
+vtn-visual = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.115.0",
+    "httpx>=0.28.0",
+    "mypy>=1.18.0",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.14.0",
+    "uvicorn>=0.38.0",
+    "vtn-ai",
+    "vtn-core",
+    "vtn-export",
+    "vtn-ingest",
+    "vtn-notes",
+    "vtn-segment",
+    "vtn-storage",
+    "vtn-style",
+    "vtn-transcript",
+    "vtn-visual",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "apps/api",
+    "worker",
+]

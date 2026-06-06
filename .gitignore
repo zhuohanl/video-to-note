@@ -5,3 +5,16 @@
 draft
 logs
 PROMPTS
+
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+__pycache__/
+*.py[cod]
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.local

@@ -259,7 +259,7 @@ Acceptance command passes**. This is the at-a-glance "what's done / what's left"
 roll up the phase. (Each task block further down also carries its own granular step checkboxes.)
 
 ### P0 — Foundation
-- [ ] P0-T1 — uv workspace + 10 packages + api/worker scaffold
+- [x] P0-T1 — uv workspace + 10 packages + api/worker scaffold
 - [ ] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
 - [ ] P0-T3 — fixtures + `fake` profile skeleton
 - [ ] P0-S0 — SPIKE: Azure credentials / liveness (gates all real-infra)
@@ -393,14 +393,14 @@ roll up the phase. (Each task block further down also carries its own granular s
 **Files:** `pyproject.toml`, `packages/*/pyproject.toml`, `packages/*/src/<pkg>/__init__.py`,
 `apps/api/...`, `worker/...`, `ruff.toml`, `mypy.ini`, `pytest.ini`.
 
-- [ ] Create root `pyproject.toml` declaring a `uv` workspace with members `packages/*`, `apps/api`,
+- [x] Create root `pyproject.toml` declaring a `uv` workspace with members `packages/*`, `apps/api`,
   `worker`. Each member depends on the `vtn_*` it needs (per spec: Repository structure dependency
   rules — `vtn_style` is depended on by `vtn_segment`+`vtn_notes`; packages never import the worker).
-- [ ] Each package exposes a `hello()` returning its name (placeholder to prove import wiring).
-- [ ] Write `tests/unit/test_imports.py` importing all 10 packages + asserting `vtn_segment` can
+- [x] Each package exposes a `hello()` returning its name (placeholder to prove import wiring).
+- [x] Write `tests/unit/test_imports.py` importing all 10 packages + asserting `vtn_segment` can
   import `vtn_style` but `vtn_style` cannot import `vtn_segment` (circular-import guard).
-- [ ] Run `uv sync && uv run pytest tests/unit/test_imports.py -q` → expect PASS.
-- [ ] `git commit -m "P0: uv workspace + package scaffold"`
+- [x] Run `uv sync && uv run pytest tests/unit/test_imports.py -q` → expect PASS.
+- [x] `git commit -m "P0: uv workspace + package scaffold"`
 
 **Acceptance:** `uv run pytest tests/unit/test_imports.py -q` exits 0; `uv run ruff check .` and
 `uv run mypy packages apps worker` exit 0. *(spec: Repository structure)*

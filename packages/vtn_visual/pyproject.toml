@@ -1,0 +1,12 @@
+[project]
+name = "vtn-visual"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["vtn-core"]
+
+[tool.uv.sources]
+vtn-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
