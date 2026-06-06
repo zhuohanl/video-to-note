@@ -2,7 +2,7 @@
 name = "vtn-ai"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["vtn-core"]
+dependencies = ["vtn-core", "openai>=2.0.0"]
 
 [tool.uv.sources]
 vtn-core = { workspace = true }

@@ -1790,11 +1790,15 @@ name = "vtn-ai"
 version = "0.1.0"
 source = { editable = "packages/vtn_ai" }
 dependencies = [
+    { name = "openai" },
     { name = "vtn-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "vtn-core", editable = "packages/vtn_core" }]
+requires-dist = [
+    { name = "openai", specifier = ">=2.0.0" },
+    { name = "vtn-core", editable = "packages/vtn_core" },
+]
 
 [[package]]
 name = "vtn-api"
