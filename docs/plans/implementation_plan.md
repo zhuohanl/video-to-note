@@ -284,7 +284,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [x] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
 
 ### P2 — MVP pipeline (fake)
-- [ ] F0-T1 — cookie sign/verify + `POST /login`
+- [x] F0-T1 — cookie sign/verify + `POST /login`
 - [ ] F1-T1 — `POST /jobs` + `GET /jobs/{id}`
 - [ ] F11-T1 — event writer + SSE endpoint + replay
 - [ ] P2-W1 — worker consumer + stage runner skeleton
