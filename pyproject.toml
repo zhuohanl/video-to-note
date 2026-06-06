@@ -8,6 +8,7 @@ dependencies = []
 
 [tool.uv.sources]
 vtn-ai = { workspace = true }
+vtn-api = { workspace = true }
 vtn-core = { workspace = true }
 vtn-export = { workspace = true }
 vtn-ingest = { workspace = true }
@@ -39,6 +40,7 @@ dev = [
     "uvicorn>=0.38.0",
     "yt-dlp>=2026.1.0",
     "vtn-ai",
+    "vtn-api",
     "vtn-core",
     "vtn-export",
     "vtn-ingest",

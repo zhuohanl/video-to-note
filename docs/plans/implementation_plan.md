@@ -277,7 +277,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 ### P1 — Contracts as code
 - [x] P1-T1 — domain models + enums + state machine
 - [x] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
-- [ ] P1-T3 — API request/response schemas + error envelope
+- [x] P1-T3 — API request/response schemas + error envelope
 - [ ] P1-T4 — SSE event models
 - [ ] P1-T5 — storage Protocols + InMemory/Local impls + repos
 - [ ] P1-T6 — invariant module (C5)
@@ -547,14 +547,14 @@ finds all spec constraints. **Rollback verified.** *(spec: Data model; Migration
 **Files:** `apps/api/vtn_api/schemas.py`, `apps/api/vtn_api/errors.py`,
 `tests/contracts/test_api_schemas.py`.
 
-- [ ] Pydantic models for every endpoint body in C2 (spec: API contract): `LoginBody`, `CreateJob`,
+- [x] Pydantic models for every endpoint body in C2 (spec: API contract): `LoginBody`, `CreateJob`,
   `JobView`, `ClipView` (+ per-clip ETag), `ClipsView` (+ collection ETag), `NoteView`, `PatchClip`,
   `SplitBody`, `MergeBody`, `PutNote`, `PatchNote`, `VersionView`, `CreateVersion`, `ExportView`.
-- [ ] `errors.py`: `ApiError(code, message, http_status)` → JSON `{"error":{code,message}}`; a
+- [x] `errors.py`: `ApiError(code, message, http_status)` → JSON `{"error":{code,message}}`; a
   FastAPI exception handler; the C2 error-code constants.
-- [ ] Test: each schema validates a good payload and rejects a bad one with `validation_error`; the
+- [x] Test: each schema validates a good payload and rejects a bad one with `validation_error`; the
   error handler renders the exact envelope for each code.
-- [ ] Run → PASS. `git commit -m "P1: API schemas + error envelope"`
+- [x] Run → PASS. `git commit -m "P1: API schemas + error envelope"`
 
 **Acceptance:** `uv run pytest tests/contracts/test_api_schemas.py -q` exits 0; the envelope shape
 matches C2 byte-for-byte. *(spec: API contract)*
