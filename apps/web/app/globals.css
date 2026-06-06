@@ -98,3 +98,130 @@ h1 {
   cursor: wait;
   opacity: 0.7;
 }
+
+.submit-shell {
+  min-height: 100vh;
+  padding: 32px 20px;
+  background: #f8fafc;
+}
+
+.submit-surface {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  display: grid;
+  gap: 22px;
+}
+
+.submit-surface header {
+  border-bottom: 1px solid #d1d5db;
+  padding-bottom: 16px;
+}
+
+.submit-surface label,
+.submit-surface fieldset,
+.style-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.submit-surface label,
+.submit-surface legend {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #374151;
+}
+
+.submit-surface input[type="url"],
+.submit-surface textarea {
+  width: 100%;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  padding: 11px 12px;
+  font: inherit;
+  color: #111827;
+  background: #ffffff;
+}
+
+.submit-surface textarea {
+  resize: vertical;
+}
+
+.submit-surface fieldset,
+.style-panel {
+  margin: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.segmented label,
+.style-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.segmented span {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+}
+
+.segmented input:checked + span {
+  border-color: #0f766e;
+  color: #0f766e;
+  background: #ecfdf5;
+}
+
+.cost-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  border-left: 4px solid #0f766e;
+  padding: 12px 14px;
+  background: #ecfdf5;
+  color: #134e4a;
+}
+
+.submit-surface [role="alert"] {
+  margin: 0;
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.submit-surface button {
+  justify-self: start;
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 18px;
+  font: inherit;
+  font-weight: 700;
+  color: #ffffff;
+  background: #0f766e;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .segmented {
+    grid-template-columns: 1fr 1fr;
+  }
+}

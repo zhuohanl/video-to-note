@@ -321,7 +321,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 ### P5 — Frontend
 - [x] F21-T1 — login + route gating
-- [ ] F22-T1 — submit form + depth + examples + cost banner
+- [x] F22-T1 — submit form + depth + examples + cost banner
 - [ ] F23-T1 — edit SSE consumer + progressive lanes + gated tools
 - [ ] F23-T2 — split/merge/set-scene/regenerate + inspector + modal
 - [ ] F24-T1 — review doc editor + caption + content selector + versions + rebuild banner
