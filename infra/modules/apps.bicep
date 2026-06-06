@@ -173,6 +173,10 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
           image: 'vtn-web:${containerImageTag}'
           env: [
             {
+              name: 'API_BASE_URL'
+              value: 'https://${apiApp.properties.configuration.ingress.fqdn}'
+            }
+            {
               name: 'NEXT_PUBLIC_API_BASE_URL'
               value: 'https://${apiApp.properties.configuration.ingress.fqdn}'
             }

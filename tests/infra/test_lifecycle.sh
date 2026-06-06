@@ -49,6 +49,20 @@ curl --fail --silent \
   --data "{\"username\":\"$VTN_USERNAME\",\"password\":\"$VTN_PASSWORD\"}" \
   "$API_URL/login" >/dev/null
 
+DEPLOYED_API_URL="$API_URL" RUN_REAL=1 uv run pytest -m real_infra -k deployed_journey
+
+WEB_URL="${WEB_URL:-${AZURE_WEB_URL:-}}"
+if [[ -z "$WEB_URL" ]]; then
+  WEB_URL="$("$AZD_BIN" env get-values | sed -n 's/^WEB_URL="\([^"]*\)"/\1/p')"
+fi
+
+if [[ -z "$WEB_URL" ]]; then
+  echo "WEB_URL is required after azd up for deployed browser e2e." >&2
+  exit 1
+fi
+
+DEPLOYED_WEB_URL="$WEB_URL" RUN_REAL=1 pnpm --dir apps/web exec playwright test e2e/journey.deployed.spec.ts
+
 "$AZD_BIN" down --purge --force
 trap - EXIT
 
