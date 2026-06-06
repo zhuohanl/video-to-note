@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+from vtn_core.cost import estimate
+from vtn_core.models import PromptDepth
 from vtn_ingest.resolve import FakeResolver, ResolveError, ResolverRegistry
 
 from vtn_worker.runner import PipelineError, StageContext
@@ -26,3 +28,7 @@ async def resolve_job(
         title=resolved.title,
         duration_sec=resolved.duration_sec,
     )
+    depth = PromptDepth(context.repo.get_prompt(context.job_id)["depth"])
+    refined = estimate(resolved.duration_sec, depth)
+    context.repo.update_cost_estimate(context.job_id, refined)
+    context.repo.emit_event(context.job_id, "cost.estimate", refined)

@@ -56,7 +56,8 @@ def test_create_job_persists_placeholder_prompt_cost_and_enqueues(monkeypatch) -
     assert response.status_code == 202
     body = response.json()
     job_id = UUID(body["job_id"])
-    assert body["cost_estimate"] == {"usd": "0.0500", "breakdown": {"profile": "fake_stub"}}
+    assert body["cost_estimate"]["usd"] == "0.0500"
+    assert body["cost_estimate"]["breakdown"]["profile"] == "submit_default"
 
     message = queue.receive()
     assert message is not None
@@ -88,7 +89,7 @@ def test_create_job_persists_placeholder_prompt_cost_and_enqueues(monkeypatch) -
         "balanced",
         [{"name": "sample.md", "markdown": "# Sample"}],
         False,
-        {"usd": "0.0500", "breakdown": {"profile": "fake_stub"}},
+        body["cost_estimate"],
     )
 
     get_response = TestClient(_app(queue)).get(f"/jobs/{job_id}", headers=_auth_headers())
@@ -102,7 +103,7 @@ def test_create_job_persists_placeholder_prompt_cost_and_enqueues(monkeypatch) -
         "error_message": None,
         "cost": {
             "estimate_usd": "0.0500",
-            "estimate": {"usd": "0.0500", "breakdown": {"profile": "fake_stub"}},
+            "estimate": body["cost_estimate"],
         },
     }
 

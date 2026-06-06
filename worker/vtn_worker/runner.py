@@ -107,3 +107,4 @@ async def run(
     await handlers.assemble(
         StageContext(job_id=job_id, attempt=attempt, stage="review_ready", repo=repo)
     )
+    repo.record_actual_costs(job_id)

@@ -303,7 +303,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [ ] F5/F6-T2 (real) — transcript chain + ffmpeg/OCR/pHash
 - [ ] F8/F9-T2 (real) — Foundry chat + embeddings
 - [x] F7-T1 — style extraction + resolution
-- [ ] F20-T1 — cost estimate + actuals
+- [x] F20-T1 — cost estimate + actuals
 - [ ] P3-E1 — `[TEST-E2E-REAL]` tiny real video → review_ready (opt-in)
 - [ ] **P3 phase gate** — integration green; real-infra e2e green; reviewer pass
 

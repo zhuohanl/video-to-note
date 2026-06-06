@@ -9,6 +9,7 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from vtn_core.cost import actual_from_usage, estimate
 from vtn_core.models import Job, JobStage, JobStatus, PromptDepth, SourceType, TranscriptSource
 
 
@@ -93,7 +94,7 @@ class JobRepository:
         examples: list[dict[str, Any]],
         use_saved_style: bool,
     ) -> JobSubmission:
-        cost_estimate = {"usd": "0.0500", "breakdown": {"profile": "fake_stub"}}
+        cost_estimate = estimate(None, depth)
         with psycopg.connect(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -142,7 +143,7 @@ class JobRepository:
                     INSERT INTO job_costs (job_id, estimate_usd, estimate_json, computed_at)
                     VALUES (%s, %s, %s, now())
                     """,
-                    (job_id, Decimal("0.0500"), Jsonb(cost_estimate)),
+                    (job_id, Decimal(str(cost_estimate["usd"])), Jsonb(cost_estimate)),
                 )
         return JobSubmission(job_id=job_id, cost_estimate=cost_estimate)
 
@@ -218,6 +219,63 @@ class JobRepository:
                                   updated_at = now()
                     """,
                     (Jsonb(examples), Jsonb(extracted)),
+                )
+
+    def cost_row(self, job_id: UUID) -> dict[str, Any]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT estimate_usd, estimate_json, actual_usd, actual_json
+                    FROM job_costs
+                    WHERE job_id = %s
+                    """,
+                    (job_id,),
+                )
+                row: dict[str, Any] | None = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError(f"cost row not found: {job_id}")
+                return dict(row)
+
+    def update_cost_estimate(self, job_id: UUID, cost_estimate: dict[str, Any]) -> None:
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE job_costs
+                    SET estimate_usd = %s,
+                        estimate_json = %s,
+                        computed_at = now()
+                    WHERE job_id = %s
+                    """,
+                    (Decimal(str(cost_estimate["usd"])), Jsonb(cost_estimate), job_id),
+                )
+
+    def record_actual_costs(self, job_id: UUID) -> None:
+        job = self.get_job(job_id)
+        if job is None:
+            raise RuntimeError(f"job not found: {job_id}")
+        video_id = job.video_id
+        spans = self.transcript_span_rows(video_id)
+        visuals = self.visual_event_rows(video_id)
+        clips = self.clips_view(job_id)["clips"]
+        transcript_end_sec = max((row["end_sec"] for row in spans), default=Decimal("0.000"))
+        actual = actual_from_usage(
+            transcript_end_sec=transcript_end_sec,
+            ocr_frames=len(visuals),
+            clip_count=len(clips),
+        )
+        with psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE job_costs
+                    SET actual_usd = %s,
+                        actual_json = %s,
+                        computed_at = now()
+                    WHERE job_id = %s
+                    """,
+                    (Decimal(str(actual["usd"])), Jsonb(actual), job_id),
                 )
 
     def claim_canonical_video(
