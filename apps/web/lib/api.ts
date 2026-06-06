@@ -50,6 +50,7 @@ export type ClipView = {
   end_sec: string;
   title: string | null;
   summary: string | null;
+  scene_caption?: string | null;
   scene_at_sec: string | null;
   scene_url: string | null;
   scene_source: string;
@@ -69,6 +70,13 @@ export type NoteView = {
   is_polished: boolean;
   clips_dirty: boolean;
   etag: string;
+};
+
+export type VersionView = {
+  seq: number;
+  label: string | null;
+  kind: string;
+  baseline?: boolean;
 };
 
 export async function login(username: string, password: string): Promise<void> {
@@ -120,7 +128,7 @@ export async function getNote(jobId: string): Promise<NoteView> {
 export async function patchClip(
   clipId: string,
   etag: string,
-  body: { title?: string; summary?: string | null },
+  body: { title?: string; summary?: string | null; scene_caption?: string | null },
   ack = false,
 ): Promise<ClipView> {
   return requestJson<ClipView>(`/clips/${clipId}${ack ? "?ack=1" : ""}`, {
@@ -162,6 +170,70 @@ export async function setScene(clipId: string, etag: string, atSec: string): Pro
   return requestJson<object>(`/clips/${clipId}/scene`, {
     body: JSON.stringify({ at_sec: atSec }),
     headers: { "content-type": "application/json", "if-match": etag },
+    method: "POST",
+  });
+}
+
+export async function putNote(jobId: string, etag: string, markdown: string): Promise<NoteView> {
+  return requestJson<NoteView>(`/jobs/${jobId}/note`, {
+    body: JSON.stringify({ markdown }),
+    headers: { "content-type": "application/json", "if-match": etag },
+    method: "PUT",
+  });
+}
+
+export async function patchNote(
+  jobId: string,
+  etag: string,
+  body: { include_summary?: boolean; include_transcript?: boolean },
+): Promise<NoteView> {
+  return requestJson<NoteView>(`/jobs/${jobId}/note`, {
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json", "if-match": etag },
+    method: "PATCH",
+  });
+}
+
+export async function rebuildNote(jobId: string, etag: string): Promise<NoteView> {
+  return requestJson<NoteView>(`/jobs/${jobId}/note/rebuild`, {
+    headers: { "if-match": etag },
+    method: "POST",
+  });
+}
+
+export async function keepNote(jobId: string, etag: string): Promise<NoteView> {
+  return requestJson<NoteView>(`/jobs/${jobId}/note/keep`, {
+    headers: { "if-match": etag },
+    method: "POST",
+  });
+}
+
+export async function listVersions(jobId: string): Promise<VersionView[]> {
+  const response = await requestJson<{ versions: VersionView[] }>(`/jobs/${jobId}/versions`);
+  return response.versions;
+}
+
+export async function saveVersion(
+  jobId: string,
+  noteEtag: string,
+  clipsEtag: string,
+  label: string | null = null,
+): Promise<VersionView> {
+  return requestJson<VersionView>(`/jobs/${jobId}/versions`, {
+    body: JSON.stringify({ label }),
+    headers: { "content-type": "application/json", "if-match": `${noteEtag}, ${clipsEtag}` },
+    method: "POST",
+  });
+}
+
+export async function restoreVersion(
+  jobId: string,
+  seq: number,
+  noteEtag: string,
+  clipsEtag: string,
+): Promise<object> {
+  return requestJson<object>(`/jobs/${jobId}/versions/${seq}/restore`, {
+    headers: { "if-match": `${noteEtag}, ${clipsEtag}` },
     method: "POST",
   });
 }

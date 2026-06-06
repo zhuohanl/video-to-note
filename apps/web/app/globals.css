@@ -398,3 +398,105 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.review-shell {
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 24px;
+  background: #f8fafc;
+}
+
+.review-header {
+  border-bottom: 1px solid #d1d5db;
+  padding-bottom: 14px;
+}
+
+.rebuild-banner,
+.content-selector,
+.caption-editor,
+.doc-editor,
+.live-preview,
+.version-history {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.rebuild-banner,
+.caption-editor,
+.version-history,
+.markdown-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.rebuild-banner p,
+.doc-editor p,
+.live-preview blockquote {
+  margin: 0;
+}
+
+.content-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.content-selector legend {
+  font-weight: 700;
+}
+
+.content-selector label,
+.caption-editor label,
+.doc-editor label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.caption-editor input,
+.doc-editor textarea {
+  width: min(100%, 760px);
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.doc-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.doc-editor textarea {
+  min-height: 260px;
+  resize: vertical;
+}
+
+.markdown-toolbar button,
+.rebuild-banner button,
+.caption-editor button,
+.version-history button {
+  min-height: 36px;
+  border: 1px solid #0f766e;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #0f766e;
+  background: #ffffff;
+  font: inherit;
+  font-weight: 700;
+}
+
+.live-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-body {
+  white-space: pre-wrap;
+}
