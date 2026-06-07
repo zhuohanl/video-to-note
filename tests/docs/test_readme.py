@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 README = ROOT / "README.md"
+ENV_EXAMPLE = ROOT / ".env.example"
 REQUIRED_HEADINGS = [
     "## Overview",
     "## Architecture",
@@ -36,3 +37,9 @@ def test_readme_command_blocks_use_known_prefixes() -> None:
             if not line:
                 continue
             assert line.startswith(KNOWN_PREFIXES), line
+
+
+def test_env_example_requests_plaintext_password_not_hash() -> None:
+    text = ENV_EXAMPLE.read_text()
+    assert "VTN_PASSWORD=" in text
+    assert "VTN_PASSWORD_HASH=" not in text
