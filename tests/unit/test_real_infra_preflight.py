@@ -64,6 +64,28 @@ def test_final_phase_requires_service_bus_connection_details() -> None:
     assert any("Service Bus" in message for message in result.errors)
 
 
+def test_final_phase_requires_all_full_real_suite_prerequisites() -> None:
+    preflight = _load_preflight_module()
+
+    result = preflight.validate_values(
+        {
+            "AZURE_SUBSCRIPTION_ID": "sub",
+            "AZURE_LOCATION": "australiaeast",
+            "POSTGRES_ADMIN_PASSWORD": "strong-password",
+            "VTN_PASSWORD": "shared-password",
+            "API_URL": "https://api.example.test",
+            "WEB_URL": "https://web.example.test",
+            "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE": "vtn-bus.servicebus.windows.net",
+        },
+        phase="final",
+    )
+
+    assert not result.ok
+    assert any("AZURE_OPENAI_ENDPOINT" in message for message in result.errors)
+    assert any("AZURE_SPEECH_KEY" in message for message in result.errors)
+    assert any("DATABASE_URL" in message for message in result.errors)
+
+
 def test_parse_azd_values_normalizes_bicep_output_names() -> None:
     preflight = _load_preflight_module()
 

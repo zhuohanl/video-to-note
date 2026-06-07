@@ -32,6 +32,21 @@ POST_UP_REQUIRED_KEYS = (
     "API_URL",
     "WEB_URL",
 )
+FINAL_REQUIRED_KEYS = (
+    "DATABASE_URL",
+    "VTN_PASSWORD_HASH",
+    "VTN_COOKIE_SECRET",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_CHAT_DEPLOYMENT",
+    "AZURE_OPENAI_EMBED_DEPLOYMENT",
+    "AZURE_SPEECH_KEY",
+    "AZURE_SPEECH_REGION",
+    "VTN_SPIKE_AUDIO_PATH",
+    "AZURE_VISION_ENDPOINT",
+    "AZURE_VISION_KEY",
+    "VTN_SPIKE_FRAME_PATH",
+)
 FINAL_PHASES = {"post-up", "servicebus", "final"}
 COMMAND_SUFFIXES = ("", ".cmd", ".exe")
 AZD_OUTPUT_ALIASES = {
@@ -127,6 +142,11 @@ def validate_values(values: dict[str, str], *, phase: str) -> ValidationResult:
                 "Missing Service Bus connection details; set AZURE_SERVICE_BUS_CONNECTION_STRING "
                 "or AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE for the live Service Bus tests."
             )
+
+    if phase == "final":
+        for key in FINAL_REQUIRED_KEYS:
+            if not values.get(key):
+                errors.append(f"Missing {key}; required for the full P6-FINAL real-infra suite.")
 
     if values.get("VTN_PASSWORD_HASH", "").startswith("$argon2"):
         warnings.append(

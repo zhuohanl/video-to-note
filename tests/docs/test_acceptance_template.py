@@ -11,6 +11,7 @@ def test_acceptance_template_records_required_p6_final_evidence() -> None:
     text = TEMPLATE.read_text()
     assert "Status: pending" in text
     assert "RUN_REAL=1 bash tests/infra/test_lifecycle.sh" in text
+    assert "preflight_real_infra.py --phase final" in text
     assert "azd up" in text
     assert "uv run pytest -m real_infra" in text
     assert "azd down --purge --force" in text
