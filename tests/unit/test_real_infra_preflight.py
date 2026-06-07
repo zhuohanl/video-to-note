@@ -62,3 +62,23 @@ def test_final_phase_requires_service_bus_connection_details() -> None:
 
     assert not result.ok
     assert any("Service Bus" in message for message in result.errors)
+
+
+def test_parse_azd_values_normalizes_bicep_output_names() -> None:
+    preflight = _load_preflight_module()
+
+    values = preflight.parse_azd_env_values(
+        '\n'.join(
+            [
+                'apiUrl="https://api.example.test"',
+                'webUrl="https://web.example.test"',
+                'serviceBusNamespace="vtn-bus"',
+            ]
+        )
+    )
+
+    assert values["API_URL"] == "https://api.example.test"
+    assert values["WEB_URL"] == "https://web.example.test"
+    assert values["AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE"] == (
+        "vtn-bus.servicebus.windows.net"
+    )

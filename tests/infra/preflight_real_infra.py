@@ -25,6 +25,11 @@ POST_UP_REQUIRED_KEYS = (
 )
 FINAL_PHASES = {"post-up", "servicebus", "final"}
 COMMAND_SUFFIXES = ("", ".cmd", ".exe")
+AZD_OUTPUT_ALIASES = {
+    "apiUrl": "API_URL",
+    "webUrl": "WEB_URL",
+    "serviceBusNamespace": "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
+}
 
 
 class ValidationResult(NamedTuple):
@@ -40,13 +45,18 @@ def parse_azd_env_values(output: str) -> dict[str, str]:
         if not line or "=" not in line:
             continue
         key, raw_value = line.split("=", 1)
-        if not key.isidentifier() or not key.isupper():
+        if not key.isidentifier():
             continue
         try:
             parsed = shlex.split(raw_value, posix=True)
         except ValueError:
             parsed = []
-        values[key] = parsed[0] if parsed else raw_value.strip().strip('"')
+        value = parsed[0] if parsed else raw_value.strip().strip('"')
+        normalized_key = AZD_OUTPUT_ALIASES.get(key, key)
+        if normalized_key == "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE" and "." not in value:
+            value = f"{value}.servicebus.windows.net"
+        if normalized_key.isupper():
+            values[normalized_key] = value
     return values
 
 
