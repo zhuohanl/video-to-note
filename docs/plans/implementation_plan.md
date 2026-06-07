@@ -334,7 +334,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [ ] F26-T2 — one-command lifecycle (`azd up` working env / `azd down` teardown)
 - [ ] F26-T3 — `[TEST-E2E-REAL]` deployed API journey (opt-in)
 - [ ] F26-T4 — `[TEST-E2E-REAL]` deployed browser journey (opt-in)
-- [ ] F27-T1 — GitHub Actions CI + CD (migrate/deploy)
+- [x] F27-T1 — GitHub Actions CI + CD (migrate/deploy)
 - [ ] F-SB-T1 — `ServiceBusQueue` + DLQ + duplicate-safe receive
 - [x] F28-T1 — segmentation eval harness
 - [ ] P6-E1 — `[TEST-E2E-REAL]` full real-infra e2e incl. real Service Bus (opt-in)
