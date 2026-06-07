@@ -20,6 +20,8 @@ if [[ -z "$AZD_BIN" ]]; then
   exit 127
 fi
 
+uv run python tests/infra/preflight_real_infra.py --phase pre-up
+
 cleanup() {
   "$AZD_BIN" down --purge --force || true
 }
@@ -28,6 +30,8 @@ trap cleanup EXIT
 "$AZD_BIN" up --no-prompt
 
 eval "$("$AZD_BIN" env get-values)"
+
+uv run python tests/infra/preflight_real_infra.py --phase post-up
 
 API_URL="${API_URL:-${AZURE_API_URL:-}}"
 RESOURCE_GROUP_NAME="${RESOURCE_GROUP_NAME:-${AZURE_RESOURCE_GROUP:-${AZURE_RESOURCE_GROUP_NAME:-}}}"

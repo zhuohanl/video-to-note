@@ -44,4 +44,12 @@ The real lifecycle test is opt-in because it creates paid Azure resources:
 RUN_REAL=1 bash tests/infra/test_lifecycle.sh
 ```
 
-The script runs `azd up`, checks `GET /healthz`, checks `POST /login`, runs `azd down --purge --force`, and verifies the resource group is gone.
+The script first runs `tests/infra/preflight_real_infra.py --phase pre-up` so
+missing Azure login, azd environment values, or unusable auth secrets fail before
+resource creation. It then runs `azd up`, checks `GET /healthz`, checks
+`POST /login`, runs the deployed API and browser real-infra journeys, runs
+`azd down --purge --force`, and verifies the resource group is gone.
+
+For the mandatory P6-FINAL run, copy `docs/acceptance.template.md` to
+`docs/acceptance.md` after the real run succeeds and record the command output,
+resource group deletion check, CI run, and independent reviewer verdict.
