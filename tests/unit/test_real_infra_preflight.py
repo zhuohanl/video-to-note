@@ -82,3 +82,24 @@ def test_parse_azd_values_normalizes_bicep_output_names() -> None:
     assert values["AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE"] == (
         "vtn-bus.servicebus.windows.net"
     )
+
+
+def test_shell_exports_include_normalized_lifecycle_values() -> None:
+    preflight = _load_preflight_module()
+
+    exports = preflight.format_shell_exports(
+        {
+            "API_URL": "https://api.example.test",
+            "WEB_URL": "https://web.example.test",
+            "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE": "vtn-bus.servicebus.windows.net",
+            "ignored": "lowercase",
+        }
+    )
+
+    assert "export API_URL=https://api.example.test" in exports
+    assert "export WEB_URL=https://web.example.test" in exports
+    assert (
+        "export AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE=vtn-bus.servicebus.windows.net"
+        in exports
+    )
+    assert "ignored" not in exports
