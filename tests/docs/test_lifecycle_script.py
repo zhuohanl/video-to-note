@@ -15,3 +15,13 @@ def test_lifecycle_runs_full_real_pytest_suite_before_browser_journey() -> None:
     assert "-k deployed_journey" not in text
     assert text.index(full_suite) < text.index(browser)
     assert '"$AZD_BIN" down --purge --force' in text
+
+
+def test_lifecycle_hydrates_runtime_secrets_from_key_vault_after_deploy() -> None:
+    text = LIFECYCLE.read_text()
+
+    assert "az keyvault secret show" in text
+    assert "--name database-url" in text
+    assert "--name vtn-password-hash" in text
+    assert "--name vtn-cookie-secret" in text
+    assert text.index("--name database-url") < text.index("--phase final")
