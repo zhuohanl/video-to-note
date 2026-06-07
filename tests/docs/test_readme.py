@@ -43,3 +43,20 @@ def test_env_example_requests_plaintext_password_not_hash() -> None:
     text = ENV_EXAMPLE.read_text()
     assert "VTN_PASSWORD=" in text
     assert "VTN_PASSWORD_HASH=" not in text
+
+
+def test_env_example_lists_real_infra_inputs() -> None:
+    text = ENV_EXAMPLE.read_text()
+    for key in (
+        "AZURE_OPENAI_ENDPOINT=",
+        "AZURE_OPENAI_API_KEY=",
+        "AZURE_OPENAI_CHAT_DEPLOYMENT=",
+        "AZURE_OPENAI_EMBED_DEPLOYMENT=",
+        "AZURE_SPEECH_KEY=",
+        "AZURE_SPEECH_REGION=",
+        "AZURE_VISION_ENDPOINT=",
+        "AZURE_VISION_KEY=",
+        "VTN_SPIKE_AUDIO_PATH=",
+        "VTN_SPIKE_FRAME_PATH=",
+    ):
+        assert key in text

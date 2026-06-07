@@ -20,4 +20,5 @@ build/
 infra/main.json
 .env
 .env.local
+.azure-fixtures/
 .spike-out/
