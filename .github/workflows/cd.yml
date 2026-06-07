@@ -34,6 +34,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Azure login
+        if: inputs.dry_run == 'false'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -67,13 +68,21 @@ jobs:
         uses: Azure/setup-azd@v2
 
       - name: Select azd environment
+        if: inputs.dry_run == 'false'
         run: |
           azd env new "$AZURE_ENV_NAME" --subscription "$AZURE_SUBSCRIPTION_ID" --location "$AZURE_LOCATION" || azd env select "$AZURE_ENV_NAME"
           azd env set POSTGRES_ADMIN_PASSWORD "$POSTGRES_ADMIN_PASSWORD"
           azd env set VTN_USERNAME "${VTN_USERNAME:-local}"
           azd env set VTN_PASSWORD "$VTN_PASSWORD"
 
-      - name: Render provision plan
+      - name: Render dry-run deployment plan
+        if: inputs.dry_run == 'true'
+        run: |
+          az bicep build --file infra/main.bicep
+          echo "Dry-run plan rendered: Bicep compiled and deployment workflow graph is valid."
+
+      - name: Render Azure provision preview
+        if: inputs.dry_run == 'false'
         run: azd provision --preview --no-prompt
 
       - name: Provision infrastructure
