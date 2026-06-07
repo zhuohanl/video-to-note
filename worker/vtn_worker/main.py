@@ -6,6 +6,7 @@ from uuid import UUID
 
 from vtn_storage.queue import InMemoryQueue, QueueProvider
 from vtn_storage.repos import JobRepository
+from vtn_storage.servicebus import ServiceBusQueue
 from vtn_transcript.chain import FakeTranscriptProvider
 
 from vtn_worker.runner import PipelineError, StageContext, StageHandlers, run
@@ -77,7 +78,15 @@ async def run_loop(queue: QueueProvider) -> None:
 
 
 def main() -> None:
-    asyncio.run(run_loop(InMemoryQueue()))
+    asyncio.run(run_loop(_queue_from_env()))
+
+
+def _queue_from_env() -> QueueProvider:
+    if os.environ.get("APP_PROFILE") == "azure" or os.environ.get(
+        "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
+    ):
+        return ServiceBusQueue.from_env()
+    return InMemoryQueue()
 
 
 if __name__ == "__main__":
