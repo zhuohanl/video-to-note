@@ -82,7 +82,7 @@ def test_final_phase_requires_all_full_real_suite_prerequisites() -> None:
 
     assert not result.ok
     assert any("AZURE_OPENAI_ENDPOINT" in message for message in result.errors)
-    assert any("AZURE_SPEECH_KEY" in message for message in result.errors)
+    assert any("AZURE_SPEECH_REGION" in message for message in result.errors)
     assert any("DATABASE_URL" in message for message in result.errors)
 
 
@@ -95,6 +95,11 @@ def test_parse_azd_values_normalizes_bicep_output_names() -> None:
                 'apiUrl="https://api.example.test"',
                 'webUrl="https://web.example.test"',
                 'keyVaultName="vtn-kv"',
+                'openAiEndpoint="https://openai.example.test"',
+                'openAiChatDeploymentName="chat-deploy"',
+                'openAiEmbedDeploymentName="embed-deploy"',
+                'speechEndpoint="https://australiaeast.api.cognitive.microsoft.com/"',
+                'visionEndpoint="https://vision.example.test"',
                 'serviceBusNamespace="vtn-bus"',
             ]
         )
@@ -103,6 +108,12 @@ def test_parse_azd_values_normalizes_bicep_output_names() -> None:
     assert values["API_URL"] == "https://api.example.test"
     assert values["WEB_URL"] == "https://web.example.test"
     assert values["KEY_VAULT_NAME"] == "vtn-kv"
+    assert values["AZURE_OPENAI_ENDPOINT"] == "https://openai.example.test"
+    assert values["AZURE_OPENAI_CHAT_DEPLOYMENT"] == "chat-deploy"
+    assert values["AZURE_OPENAI_EMBED_DEPLOYMENT"] == "embed-deploy"
+    assert values["AZURE_SPEECH_ENDPOINT"] == "https://australiaeast.api.cognitive.microsoft.com/"
+    assert values["AZURE_SPEECH_REGION"] == "australiaeast"
+    assert values["AZURE_VISION_ENDPOINT"] == "https://vision.example.test"
     assert values["AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE"] == (
         "vtn-bus.servicebus.windows.net"
     )

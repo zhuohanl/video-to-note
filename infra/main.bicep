@@ -18,6 +18,16 @@ param vtnPasswordHash string
 @secure()
 param vtnCookieSecret string
 
+param openAiChatDeploymentName string
+param openAiChatModelName string
+param openAiChatModelVersion string
+param openAiEmbedDeploymentName string
+param openAiEmbedModelName string
+param openAiEmbedModelVersion string
+param openAiDeploymentSku string = 'Standard'
+param openAiChatDeploymentCapacity int = 10
+param openAiEmbedDeploymentCapacity int = 10
+
 param containerImageTag string = 'latest'
 
 var suffix = uniqueString(subscription().id, environmentName)
@@ -93,6 +103,15 @@ module cognitive 'modules/cognitive.bicep' = {
     location: location
     namePrefix: namePrefix
     principalId: identity.outputs.principalId
+    openAiChatDeploymentName: openAiChatDeploymentName
+    openAiChatModelName: openAiChatModelName
+    openAiChatModelVersion: openAiChatModelVersion
+    openAiEmbedDeploymentName: openAiEmbedDeploymentName
+    openAiEmbedModelName: openAiEmbedModelName
+    openAiEmbedModelVersion: openAiEmbedModelVersion
+    openAiDeploymentSku: openAiDeploymentSku
+    openAiChatDeploymentCapacity: openAiChatDeploymentCapacity
+    openAiEmbedDeploymentCapacity: openAiEmbedDeploymentCapacity
     tags: tags
   }
 }
@@ -128,6 +147,8 @@ module apps 'modules/apps.bicep' = {
     storageAccountName: storage.outputs.accountName
     appInsightsConnectionString: insights.outputs.connectionString
     azureOpenAiEndpoint: cognitive.outputs.openAiEndpoint
+    azureOpenAiChatDeployment: cognitive.outputs.openAiChatDeploymentName
+    azureOpenAiEmbedDeployment: cognitive.outputs.openAiEmbedDeploymentName
     azureSpeechEndpoint: cognitive.outputs.speechEndpoint
     azureVisionEndpoint: cognitive.outputs.visionEndpoint
     containerImageTag: containerImageTag
@@ -140,5 +161,10 @@ output webUrl string = apps.outputs.webUrl
 output resourceGroupName string = appResourceGroup.name
 output keyVaultName string = vault.outputs.name
 output postgresServerName string = postgres.outputs.serverName
+output openAiEndpoint string = cognitive.outputs.openAiEndpoint
+output openAiChatDeploymentName string = cognitive.outputs.openAiChatDeploymentName
+output openAiEmbedDeploymentName string = cognitive.outputs.openAiEmbedDeploymentName
+output speechEndpoint string = cognitive.outputs.speechEndpoint
+output visionEndpoint string = cognitive.outputs.visionEndpoint
 output serviceBusNamespace string = serviceBus.outputs.namespaceName
 output serviceBusQueueName string = serviceBus.outputs.queueName

@@ -1,6 +1,15 @@
 param location string
 param namePrefix string
 param principalId string
+param openAiChatDeploymentName string
+param openAiChatModelName string
+param openAiChatModelVersion string
+param openAiEmbedDeploymentName string
+param openAiEmbedModelName string
+param openAiEmbedModelVersion string
+param openAiDeploymentSku string
+param openAiChatDeploymentCapacity int
+param openAiEmbedDeploymentCapacity int
 param tags object
 
 var cognitiveUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
@@ -32,6 +41,40 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
     customSubDomainName: '${namePrefix}-openai'
     disableLocalAuth: true
     publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: openAi
+  name: openAiChatDeploymentName
+  sku: {
+    name: openAiDeploymentSku
+    capacity: openAiChatDeploymentCapacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: openAiChatModelName
+      version: openAiChatModelVersion
+    }
+    versionUpgradeOption: 'OnceCurrentVersionExpired'
+  }
+}
+
+resource embedDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: openAi
+  name: openAiEmbedDeploymentName
+  sku: {
+    name: openAiDeploymentSku
+    capacity: openAiEmbedDeploymentCapacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: openAiEmbedModelName
+      version: openAiEmbedModelVersion
+    }
+    versionUpgradeOption: 'OnceCurrentVersionExpired'
   }
 }
 
@@ -107,5 +150,7 @@ resource visionUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 output aiServicesEndpoint string = aiServices.properties.endpoint
 output openAiEndpoint string = openAi.properties.endpoint
+output openAiChatDeploymentName string = chatDeployment.name
+output openAiEmbedDeploymentName string = embedDeployment.name
 output speechEndpoint string = speech.properties.endpoint
 output visionEndpoint string = vision.properties.endpoint
