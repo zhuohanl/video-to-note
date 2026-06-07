@@ -336,7 +336,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [ ] F26-T4 — `[TEST-E2E-REAL]` deployed browser journey (opt-in)
 - [ ] F27-T1 — GitHub Actions CI + CD (migrate/deploy)
 - [ ] F-SB-T1 — `ServiceBusQueue` + DLQ + duplicate-safe receive
-- [ ] F28-T1 — segmentation eval harness
+- [x] F28-T1 — segmentation eval harness
 - [ ] P6-E1 — `[TEST-E2E-REAL]` full real-infra e2e incl. real Service Bus (opt-in)
 - [ ] F29-T1 — `README.md` + top-level docs
 - [ ] P6-FINAL — `[TEST-E2E-REAL]` mandatory end-of-build real-infra acceptance run
