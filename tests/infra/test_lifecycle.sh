@@ -31,15 +31,11 @@ trap cleanup EXIT
 
 eval "$("$AZD_BIN" env get-values)"
 
-uv run python tests/infra/preflight_real_infra.py --phase post-up
+eval "$(uv run python tests/infra/preflight_real_infra.py --phase post-up --format shell)"
 
 API_URL="${API_URL:-${AZURE_API_URL:-}}"
 RESOURCE_GROUP_NAME="${RESOURCE_GROUP_NAME:-${AZURE_RESOURCE_GROUP:-${AZURE_RESOURCE_GROUP_NAME:-}}}"
 VTN_USERNAME="${VTN_USERNAME:-local}"
-
-if [[ -z "$API_URL" ]]; then
-  API_URL="$("$AZD_BIN" env get-values | sed -n 's/^API_URL="\([^"]*\)"/\1/p')"
-fi
 
 if [[ -z "$API_URL" || -z "${VTN_PASSWORD:-}" || -z "$RESOURCE_GROUP_NAME" ]]; then
   echo "API_URL, VTN_PASSWORD, and RESOURCE_GROUP_NAME/AZURE_RESOURCE_GROUP are required after azd up." >&2
@@ -56,9 +52,6 @@ curl --fail --silent \
 DEPLOYED_API_URL="$API_URL" RUN_REAL=1 uv run pytest -m real_infra -k deployed_journey
 
 WEB_URL="${WEB_URL:-${AZURE_WEB_URL:-}}"
-if [[ -z "$WEB_URL" ]]; then
-  WEB_URL="$("$AZD_BIN" env get-values | sed -n 's/^WEB_URL="\([^"]*\)"/\1/p')"
-fi
 
 if [[ -z "$WEB_URL" ]]; then
   echo "WEB_URL is required after azd up for deployed browser e2e." >&2

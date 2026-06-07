@@ -14,6 +14,15 @@ SERVICE_BUS_KEYS = (
     "AZURE_SERVICE_BUS_CONNECTION_STRING",
     "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
 )
+SHELL_EXPORT_KEYS = (
+    "API_URL",
+    "WEB_URL",
+    "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
+    "AZURE_SERVICE_BUS_QUEUE_NAME",
+    "RESOURCE_GROUP_NAME",
+    "AZURE_RESOURCE_GROUP",
+    "AZURE_RESOURCE_GROUP_NAME",
+)
 PRE_UP_REQUIRED_KEYS = (
     "AZURE_SUBSCRIPTION_ID",
     "AZURE_LOCATION",
@@ -29,6 +38,8 @@ AZD_OUTPUT_ALIASES = {
     "apiUrl": "API_URL",
     "webUrl": "WEB_URL",
     "serviceBusNamespace": "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
+    "serviceBusQueueName": "AZURE_SERVICE_BUS_QUEUE_NAME",
+    "resourceGroupName": "RESOURCE_GROUP_NAME",
 }
 
 
@@ -125,6 +136,15 @@ def validate_values(values: dict[str, str], *, phase: str) -> ValidationResult:
     return ValidationResult(ok=not errors, errors=errors, warnings=warnings)
 
 
+def format_shell_exports(values: dict[str, str]) -> str:
+    lines: list[str] = []
+    for key in SHELL_EXPORT_KEYS:
+        value = values.get(key)
+        if value:
+            lines.append(f"export {key}={shlex.quote(value)}")
+    return "\n".join(lines)
+
+
 def _check_az_login() -> str | None:
     try:
         az = _resolve_command("az")
@@ -158,6 +178,12 @@ def main(argv: list[str] | None = None) -> int:
         default="pre-up",
         help="Validation phase. pre-up is safe to run before resource creation.",
     )
+    parser.add_argument(
+        "--format",
+        choices=("text", "shell"),
+        default="text",
+        help="Output format for successful validation.",
+    )
     args = parser.parse_args(argv)
 
     errors: list[str] = []
@@ -182,7 +208,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    print(f"Real-infra preflight passed for phase {args.phase}.")
+    if args.format == "shell":
+        shell_exports = format_shell_exports(values)
+        if shell_exports:
+            print(shell_exports)
+    else:
+        print(f"Real-infra preflight passed for phase {args.phase}.")
     return 0
 
 
