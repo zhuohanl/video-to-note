@@ -31,7 +31,7 @@ trap cleanup EXIT
 
 eval "$("$AZD_BIN" env get-values)"
 
-eval "$(uv run python tests/infra/preflight_real_infra.py --phase post-up --format shell)"
+eval "$(uv run python tests/infra/preflight_real_infra.py --phase final --format shell)"
 
 API_URL="${API_URL:-${AZURE_API_URL:-}}"
 RESOURCE_GROUP_NAME="${RESOURCE_GROUP_NAME:-${AZURE_RESOURCE_GROUP:-${AZURE_RESOURCE_GROUP_NAME:-}}}"
@@ -49,7 +49,7 @@ curl --fail --silent \
   --data "{\"username\":\"$VTN_USERNAME\",\"password\":\"$VTN_PASSWORD\"}" \
   "$API_URL/login" >/dev/null
 
-DEPLOYED_API_URL="$API_URL" RUN_REAL=1 uv run pytest -m real_infra -k deployed_journey
+DEPLOYED_API_URL="$API_URL" RUN_REAL=1 uv run pytest -m real_infra
 
 WEB_URL="${WEB_URL:-${AZURE_WEB_URL:-}}"
 

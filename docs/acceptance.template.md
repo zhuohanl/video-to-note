@@ -25,6 +25,10 @@ Azure acceptance run has completed. Do not treat this template as final evidence
 - Live Service Bus details are available through
   `AZURE_SERVICE_BUS_CONNECTION_STRING` or
   `AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` after provisioning.
+- Full-suite adapter inputs are set: `DATABASE_URL`, `VTN_PASSWORD_HASH`,
+  `VTN_COOKIE_SECRET`, Azure OpenAI endpoint/key/deployments, Azure Speech
+  key/region/audio fixture path, and Azure Vision endpoint/key/frame fixture
+  path.
 - The operator accepts that the run creates paid Azure resources.
 
 ## Commands
@@ -32,13 +36,12 @@ Azure acceptance run has completed. Do not treat this template as final evidence
 ```bash
 uv run python tests/infra/preflight_real_infra.py --phase pre-up
 RUN_REAL=1 bash tests/infra/test_lifecycle.sh
-uv run pytest -m real_infra
-azd down --purge --force
 ```
 
-`tests/infra/test_lifecycle.sh` runs `azd up`, validates the deployed API,
-runs the deployed API journey, runs the deployed browser journey, runs `azd down
---purge --force`, and verifies the resource group was removed.
+`tests/infra/test_lifecycle.sh` runs `azd up`, validates the deployed API, runs
+`preflight_real_infra.py --phase final`, runs `uv run pytest -m real_infra`,
+runs the deployed browser journey, runs `azd down --purge --force`, and verifies
+the resource group was removed.
 
 ## Results
 
