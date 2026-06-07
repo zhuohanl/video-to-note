@@ -59,10 +59,18 @@ class TranscriptProviderChain:
 
 @dataclass(frozen=True)
 class AzureSpeechProvider:
-    key: str
     region: str
     audio_path: str
+    key: str | None = None
+    token: str | None = None
     language: str = "en-US"
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self.token:
+            return {"Authorization": f"Bearer {self.token}"}
+        if self.key:
+            return {"Ocp-Apim-Subscription-Key": self.key}
+        raise ProviderFailure("Azure Speech requires key or token")
 
     def fetch_real(self) -> TranscriptResult:
         query = urllib.parse.urlencode({"language": self.language})
@@ -75,7 +83,7 @@ class AzureSpeechProvider:
                 url,
                 data=audio.read(),
                 headers={
-                    "Ocp-Apim-Subscription-Key": self.key,
+                    **self._auth_headers(),
                     "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
                     "Accept": "application/json",
                 },

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -18,13 +19,22 @@ class EmbeddingClient(Protocol):
 @dataclass(frozen=True)
 class OpenAIChatClient:
     endpoint: str
-    api_key: str
+    api_key: str | None = None
+    token: str | None = None
     api_version: str = "2024-10-21"
 
+    def _azure_ad_token_provider(self) -> Callable[[], str] | None:
+        if self.token is None:
+            return None
+        token = self.token
+        return lambda: token
+
     def complete(self, **kwargs: object) -> str:
+        token_provider = self._azure_ad_token_provider()
         client = AzureOpenAI(
             azure_endpoint=self.endpoint,
             api_key=self.api_key,
+            azure_ad_token_provider=token_provider,
             api_version=self.api_version,
         )
         response = client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
@@ -37,13 +47,22 @@ class OpenAIChatClient:
 @dataclass(frozen=True)
 class OpenAIEmbeddingClient:
     endpoint: str
-    api_key: str
+    api_key: str | None = None
+    token: str | None = None
     api_version: str = "2024-10-21"
 
+    def _azure_ad_token_provider(self) -> Callable[[], str] | None:
+        if self.token is None:
+            return None
+        token = self.token
+        return lambda: token
+
     def embed(self, *, model: str, input: list[str]) -> list[list[float]]:
+        token_provider = self._azure_ad_token_provider()
         client = AzureOpenAI(
             azure_endpoint=self.endpoint,
             api_key=self.api_key,
+            azure_ad_token_provider=token_provider,
             api_version=self.api_version,
         )
         response = client.embeddings.create(model=model, input=input)

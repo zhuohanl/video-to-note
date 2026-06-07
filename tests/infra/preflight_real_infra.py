@@ -39,14 +39,11 @@ FINAL_REQUIRED_KEYS = (
     "VTN_PASSWORD_HASH",
     "VTN_COOKIE_SECRET",
     "AZURE_OPENAI_ENDPOINT",
-    "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_CHAT_DEPLOYMENT",
     "AZURE_OPENAI_EMBED_DEPLOYMENT",
-    "AZURE_SPEECH_KEY",
     "AZURE_SPEECH_REGION",
     "VTN_SPIKE_AUDIO_PATH",
     "AZURE_VISION_ENDPOINT",
-    "AZURE_VISION_KEY",
     "VTN_SPIKE_FRAME_PATH",
 )
 FINAL_PHASES = {"post-up", "servicebus", "final"}
@@ -55,6 +52,11 @@ AZD_OUTPUT_ALIASES = {
     "apiUrl": "API_URL",
     "webUrl": "WEB_URL",
     "keyVaultName": "KEY_VAULT_NAME",
+    "openAiEndpoint": "AZURE_OPENAI_ENDPOINT",
+    "openAiChatDeploymentName": "AZURE_OPENAI_CHAT_DEPLOYMENT",
+    "openAiEmbedDeploymentName": "AZURE_OPENAI_EMBED_DEPLOYMENT",
+    "speechEndpoint": "AZURE_SPEECH_ENDPOINT",
+    "visionEndpoint": "AZURE_VISION_ENDPOINT",
     "serviceBusNamespace": "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
     "serviceBusQueueName": "AZURE_SERVICE_BUS_QUEUE_NAME",
     "resourceGroupName": "RESOURCE_GROUP_NAME",
@@ -86,6 +88,11 @@ def parse_azd_env_values(output: str) -> dict[str, str]:
             value = f"{value}.servicebus.windows.net"
         if normalized_key.isupper():
             values[normalized_key] = value
+            if normalized_key == "AZURE_SPEECH_ENDPOINT" and not values.get("AZURE_SPEECH_REGION"):
+                hostname = value.removeprefix("https://").split("/", 1)[0]
+                region = hostname.split(".", 1)[0]
+                if region:
+                    values["AZURE_SPEECH_REGION"] = region
     return values
 
 

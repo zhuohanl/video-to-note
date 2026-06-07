@@ -26,7 +26,15 @@ class FakeOcrProvider:
 @dataclass(frozen=True)
 class AzureVisionOcrProvider:
     endpoint: str
-    key: str
+    key: str | None = None
+    token: str | None = None
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self.token:
+            return {"Authorization": f"Bearer {self.token}"}
+        if self.key:
+            return {"Ocp-Apim-Subscription-Key": self.key}
+        raise OcrFailure("Azure Vision OCR requires key or token")
 
     def extract_text(self, frame_path: str) -> str:
         url = self.endpoint.rstrip("/") + "/computervision/imageanalysis:analyze"
@@ -36,7 +44,7 @@ class AzureVisionOcrProvider:
                 f"{url}?{query}",
                 data=frame.read(),
                 headers={
-                    "Ocp-Apim-Subscription-Key": self.key,
+                    **self._auth_headers(),
                     "Content-Type": "application/octet-stream",
                     "Accept": "application/json",
                 },

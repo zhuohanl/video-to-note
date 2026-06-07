@@ -8,6 +8,8 @@ param serviceBusQueueName string
 param storageAccountName string
 param appInsightsConnectionString string
 param azureOpenAiEndpoint string
+param azureOpenAiChatDeployment string
+param azureOpenAiEmbedDeployment string
 param azureSpeechEndpoint string
 param azureVisionEndpoint string
 param containerImageTag string
@@ -48,6 +50,14 @@ var commonEnv = [
   {
     name: 'AZURE_OPENAI_ENDPOINT'
     value: azureOpenAiEndpoint
+  }
+  {
+    name: 'AZURE_OPENAI_CHAT_DEPLOYMENT'
+    value: azureOpenAiChatDeployment
+  }
+  {
+    name: 'AZURE_OPENAI_EMBED_DEPLOYMENT'
+    value: azureOpenAiEmbedDeployment
   }
   {
     name: 'AZURE_SPEECH_ENDPOINT'

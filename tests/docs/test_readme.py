@@ -49,13 +49,12 @@ def test_env_example_lists_real_infra_inputs() -> None:
     text = ENV_EXAMPLE.read_text()
     for key in (
         "AZURE_OPENAI_ENDPOINT=",
-        "AZURE_OPENAI_API_KEY=",
         "AZURE_OPENAI_CHAT_DEPLOYMENT=",
         "AZURE_OPENAI_EMBED_DEPLOYMENT=",
-        "AZURE_SPEECH_KEY=",
+        "AZURE_OPENAI_CHAT_MODEL=",
+        "AZURE_OPENAI_EMBED_MODEL=",
         "AZURE_SPEECH_REGION=",
         "AZURE_VISION_ENDPOINT=",
-        "AZURE_VISION_KEY=",
         "VTN_SPIKE_AUDIO_PATH=",
         "VTN_SPIKE_FRAME_PATH=",
     ):

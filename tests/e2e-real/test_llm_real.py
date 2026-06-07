@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 import pytest
+from azure.identity import AzureCliCredential
 from vtn_ai.foundry import (
     FoundryChatModel,
     FoundryEmbeddingModel,
@@ -15,7 +16,6 @@ from vtn_ai.foundry import (
 def test_llm_real_foundry_json_and_embeddings() -> None:
     required = (
         "AZURE_OPENAI_ENDPOINT",
-        "AZURE_OPENAI_API_KEY",
         "AZURE_OPENAI_CHAT_DEPLOYMENT",
         "AZURE_OPENAI_EMBED_DEPLOYMENT",
     )
@@ -23,10 +23,11 @@ def test_llm_real_foundry_json_and_embeddings() -> None:
     if missing:
         pytest.skip(f"missing Azure OpenAI env vars: {', '.join(missing)}")
 
+    token = AzureCliCredential().get_token("https://cognitiveservices.azure.com/.default").token
     chat = FoundryChatModel(
         client=OpenAIChatClient(
             endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            token=token,
         ),
         deployment=os.environ["AZURE_OPENAI_CHAT_DEPLOYMENT"],
     )
@@ -40,7 +41,7 @@ def test_llm_real_foundry_json_and_embeddings() -> None:
     embeddings = FoundryEmbeddingModel(
         client=OpenAIEmbeddingClient(
             endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            token=token,
         ),
         deployment=os.environ["AZURE_OPENAI_EMBED_DEPLOYMENT"],
     ).embed(["first section", "second section"])

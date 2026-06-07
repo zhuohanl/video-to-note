@@ -9,7 +9,7 @@
       "value": "${AZURE_LOCATION}"
     },
     "loginUsername": {
-      "value": "local"
+      "value": "${VTN_USERNAME}"
     },
     "postgresAdminPassword": {
       "value": "${POSTGRES_ADMIN_PASSWORD}"
@@ -19,6 +19,33 @@
     },
     "vtnCookieSecret": {
       "value": "${VTN_COOKIE_SECRET}"
+    },
+    "openAiChatDeploymentName": {
+      "value": "${AZURE_OPENAI_CHAT_DEPLOYMENT}"
+    },
+    "openAiChatModelName": {
+      "value": "${AZURE_OPENAI_CHAT_MODEL}"
+    },
+    "openAiChatModelVersion": {
+      "value": "${AZURE_OPENAI_CHAT_MODEL_VERSION}"
+    },
+    "openAiEmbedDeploymentName": {
+      "value": "${AZURE_OPENAI_EMBED_DEPLOYMENT}"
+    },
+    "openAiEmbedModelName": {
+      "value": "${AZURE_OPENAI_EMBED_MODEL}"
+    },
+    "openAiEmbedModelVersion": {
+      "value": "${AZURE_OPENAI_EMBED_MODEL_VERSION}"
+    },
+    "openAiDeploymentSku": {
+      "value": "${AZURE_OPENAI_DEPLOYMENT_SKU}"
+    },
+    "openAiChatDeploymentCapacity": {
+      "value": "${AZURE_OPENAI_CHAT_DEPLOYMENT_CAPACITY}"
+    },
+    "openAiEmbedDeploymentCapacity": {
+      "value": "${AZURE_OPENAI_EMBED_DEPLOYMENT_CAPACITY}"
     }
   }
 }
