@@ -31,16 +31,28 @@ trap cleanup EXIT
 
 eval "$("$AZD_BIN" env get-values)"
 
-eval "$(uv run python tests/infra/preflight_real_infra.py --phase final --format shell)"
+eval "$(uv run python tests/infra/preflight_real_infra.py --phase post-up --format shell)"
 
 API_URL="${API_URL:-${AZURE_API_URL:-}}"
+KEY_VAULT_NAME="${KEY_VAULT_NAME:-${AZURE_KEY_VAULT_NAME:-}}"
 RESOURCE_GROUP_NAME="${RESOURCE_GROUP_NAME:-${AZURE_RESOURCE_GROUP:-${AZURE_RESOURCE_GROUP_NAME:-}}}"
 VTN_USERNAME="${VTN_USERNAME:-local}"
 
-if [[ -z "$API_URL" || -z "${VTN_PASSWORD:-}" || -z "$RESOURCE_GROUP_NAME" ]]; then
-  echo "API_URL, VTN_PASSWORD, and RESOURCE_GROUP_NAME/AZURE_RESOURCE_GROUP are required after azd up." >&2
+if [[ -z "$KEY_VAULT_NAME" && -n "$RESOURCE_GROUP_NAME" ]]; then
+  KEY_VAULT_NAME="$(az keyvault list --resource-group "$RESOURCE_GROUP_NAME" --query "[?tags.app=='video-to-note-v2'].name | [0]" -o tsv)"
+fi
+
+if [[ -z "$API_URL" || -z "${VTN_PASSWORD:-}" || -z "$RESOURCE_GROUP_NAME" || -z "$KEY_VAULT_NAME" ]]; then
+  echo "API_URL, VTN_PASSWORD, KEY_VAULT_NAME, and RESOURCE_GROUP_NAME/AZURE_RESOURCE_GROUP are required after azd up." >&2
   exit 1
 fi
+
+DATABASE_URL="${DATABASE_URL:-$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name database-url --query value -o tsv)}"
+VTN_PASSWORD_HASH="${VTN_PASSWORD_HASH:-$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name vtn-password-hash --query value -o tsv)}"
+VTN_COOKIE_SECRET="${VTN_COOKIE_SECRET:-$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name vtn-cookie-secret --query value -o tsv)}"
+export DATABASE_URL VTN_PASSWORD_HASH VTN_COOKIE_SECRET
+
+uv run python tests/infra/preflight_real_infra.py --phase final
 
 curl --fail --silent "$API_URL/healthz" >/dev/null
 curl --fail --silent \

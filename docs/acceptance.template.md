@@ -20,8 +20,8 @@ Azure acceptance run has completed. Do not treat this template as final evidence
 
 - `az account show` confirms the target subscription.
 - `azd env get-values` includes `AZURE_SUBSCRIPTION_ID`, `AZURE_LOCATION`,
-  `POSTGRES_ADMIN_PASSWORD`, and either `VTN_PASSWORD` or a bcrypt
-  `VTN_PASSWORD_HASH`.
+  `POSTGRES_ADMIN_PASSWORD`, and `VTN_PASSWORD`; the seed hook may derive the
+  bcrypt `VTN_PASSWORD_HASH`.
 - Live Service Bus details are available through
   `AZURE_SERVICE_BUS_CONNECTION_STRING` or
   `AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` after provisioning.

@@ -17,6 +17,8 @@ SERVICE_BUS_KEYS = (
 SHELL_EXPORT_KEYS = (
     "API_URL",
     "WEB_URL",
+    "KEY_VAULT_NAME",
+    "AZURE_KEY_VAULT_NAME",
     "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
     "AZURE_SERVICE_BUS_QUEUE_NAME",
     "RESOURCE_GROUP_NAME",
@@ -52,6 +54,7 @@ COMMAND_SUFFIXES = ("", ".cmd", ".exe")
 AZD_OUTPUT_ALIASES = {
     "apiUrl": "API_URL",
     "webUrl": "WEB_URL",
+    "keyVaultName": "KEY_VAULT_NAME",
     "serviceBusNamespace": "AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE",
     "serviceBusQueueName": "AZURE_SERVICE_BUS_QUEUE_NAME",
     "resourceGroupName": "RESOURCE_GROUP_NAME",
@@ -129,6 +132,11 @@ def validate_values(values: dict[str, str], *, phase: str) -> ValidationResult:
         errors.append(
             "Set VTN_PASSWORD or a bcrypt VTN_PASSWORD_HASH before running real infrastructure; "
             "the API login path validates bcrypt hashes."
+        )
+    if not values.get("VTN_PASSWORD"):
+        errors.append(
+            "Set VTN_PASSWORD before running real infrastructure; "
+            "lifecycle smoke tests must log in."
         )
 
     if phase in FINAL_PHASES:

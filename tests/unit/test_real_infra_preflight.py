@@ -14,7 +14,7 @@ def _load_preflight_module():
     return module
 
 
-def test_pre_up_rejects_non_bcrypt_password_hash_without_plain_password() -> None:
+def test_pre_up_rejects_hash_without_plain_password_for_login_smoke() -> None:
     preflight = _load_preflight_module()
 
     result = preflight.validate_values(
@@ -22,7 +22,7 @@ def test_pre_up_rejects_non_bcrypt_password_hash_without_plain_password() -> Non
             "AZURE_SUBSCRIPTION_ID": "sub",
             "AZURE_LOCATION": "australiaeast",
             "POSTGRES_ADMIN_PASSWORD": "strong-password",
-            "VTN_PASSWORD_HASH": "$argon2id$v=19$m=65536,t=3,p=4$preview$previewhash",
+            "VTN_PASSWORD_HASH": "$2b$12$abcdefghijklmnopqrstuu34n0xk5N/9cQZRqH9klU7QG6O9YtbkW",
         },
         phase="pre-up",
     )
@@ -94,6 +94,7 @@ def test_parse_azd_values_normalizes_bicep_output_names() -> None:
             [
                 'apiUrl="https://api.example.test"',
                 'webUrl="https://web.example.test"',
+                'keyVaultName="vtn-kv"',
                 'serviceBusNamespace="vtn-bus"',
             ]
         )
@@ -101,6 +102,7 @@ def test_parse_azd_values_normalizes_bicep_output_names() -> None:
 
     assert values["API_URL"] == "https://api.example.test"
     assert values["WEB_URL"] == "https://web.example.test"
+    assert values["KEY_VAULT_NAME"] == "vtn-kv"
     assert values["AZURE_SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE"] == (
         "vtn-bus.servicebus.windows.net"
     )
