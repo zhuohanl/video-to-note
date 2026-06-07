@@ -338,7 +338,7 @@ roll up the phase. (Each task block further down also carries its own granular s
 - [ ] F-SB-T1 — `ServiceBusQueue` + DLQ + duplicate-safe receive
 - [x] F28-T1 — segmentation eval harness
 - [ ] P6-E1 — `[TEST-E2E-REAL]` full real-infra e2e incl. real Service Bus (opt-in)
-- [ ] F29-T1 — `README.md` + top-level docs
+- [x] F29-T1 — `README.md` + top-level docs
 - [ ] P6-FINAL — `[TEST-E2E-REAL]` mandatory end-of-build real-infra acceptance run
 - [ ] **P6 final gate** — CI green; P6-FINAL green (`azd up`→full real suite→`azd down`); `docs/acceptance.md` recorded; reviewer pass
 
