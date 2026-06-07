@@ -1,0 +1,72 @@
+[project]
+name = "video-to-note-v2"
+version = "0.1.0"
+description = "Video-to-Note v2 monorepo workspace"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv.sources]
+vtn-ai = { workspace = true }
+vtn-api = { workspace = true }
+vtn-core = { workspace = true }
+vtn-export = { workspace = true }
+vtn-ingest = { workspace = true }
+vtn-notes = { workspace = true }
+vtn-segment = { workspace = true }
+vtn-storage = { workspace = true }
+vtn-style = { workspace = true }
+vtn-transcript = { workspace = true }
+vtn-visual = { workspace = true }
+vtn-worker = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.115.0",
+    "azure-identity>=1.25.0",
+    "azure-servicebus>=7.14.0",
+    "azure-storage-blob>=12.27.0",
+    "alembic>=1.17.0",
+    "httpx>=0.28.0",
+    "asyncpg>=0.31.0",
+    "imagehash>=4.3.0",
+    "mypy>=1.18.0",
+    "openai>=2.0.0",
+    "pillow>=12.0.0",
+    "psycopg[binary]>=3.2.0",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.14.0",
+    "sqlalchemy>=2.0.0",
+    "uvicorn>=0.38.0",
+    "yt-dlp>=2026.1.0",
+    "vtn-ai",
+    "vtn-api",
+    "vtn-core",
+    "vtn-export",
+    "vtn-ingest",
+    "vtn-notes",
+    "vtn-segment",
+    "vtn-storage",
+    "vtn-style",
+    "vtn-transcript",
+    "vtn-visual",
+    "vtn-worker",
+    "pytest-cov>=7.1.0",
+    "imageio-ffmpeg>=0.6.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+markers = [
+    "real_infra: opt-in tests that use live external services or paid cloud resources",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "apps/api",
+    "worker",
+]

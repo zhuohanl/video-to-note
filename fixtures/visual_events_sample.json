@@ -1,0 +1,44 @@
+[
+  {
+    "at_sec": 1.0,
+    "event_type": "slide",
+    "phash": "8f1c2a3b4d5e6071",
+    "ocr_text": "Architecture overview",
+    "frame_uri": "local://frames/video-1/0001.png"
+  },
+  {
+    "at_sec": 5.0,
+    "event_type": "slide",
+    "phash": "8f1c2a3b4d5e6070",
+    "ocr_text": "Browser never calls worker",
+    "frame_uri": "local://frames/video-1/0002.png"
+  },
+  {
+    "at_sec": 9.0,
+    "event_type": "demo",
+    "phash": "1a2b3c4d5e6f7081",
+    "ocr_text": "Submit job",
+    "frame_uri": "local://frames/video-1/0003.png"
+  },
+  {
+    "at_sec": 14.0,
+    "event_type": "code",
+    "phash": "2b3c4d5e6f708192",
+    "ocr_text": "QueueProvider",
+    "frame_uri": "local://frames/video-1/0004.png"
+  },
+  {
+    "at_sec": 19.0,
+    "event_type": "speaker",
+    "phash": "3c4d5e6f708192a3",
+    "ocr_text": "",
+    "frame_uri": "local://frames/video-1/0005.png"
+  },
+  {
+    "at_sec": 25.0,
+    "event_type": "slide",
+    "phash": "4d5e6f708192a3b4",
+    "ocr_text": "Export ZIP",
+    "frame_uri": "local://frames/video-1/0006.png"
+  }
+]

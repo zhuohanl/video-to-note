@@ -1,0 +1,30 @@
+name: video-to-note-v2
+metadata:
+  template: video-to-note-v2@0.1.0
+infra:
+  provider: bicep
+  path: infra
+hooks:
+  postprovision:
+    run: ./infra/hooks/seed_secrets.sh
+  postdeploy:
+    run: ./infra/hooks/migrate.sh
+services:
+  web:
+    project: ./apps/web
+    host: containerapp
+    language: js
+    docker:
+      path: Dockerfile
+  api:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: apps/api/Dockerfile
+  worker:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: worker/Dockerfile

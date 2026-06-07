@@ -1,0 +1,6 @@
+{
+  "boundaries": [
+    {"start_sec": 0.0, "end_sec": 14.0, "title": "Introduction"},
+    {"start_sec": 14.0, "end_sec": 28.0, "title": "Progress and export"}
+  ]
+}

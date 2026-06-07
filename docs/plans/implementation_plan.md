@@ -259,86 +259,86 @@ Acceptance command passes**. This is the at-a-glance "what's done / what's left"
 roll up the phase. (Each task block further down also carries its own granular step checkboxes.)
 
 ### P0 — Foundation
-- [ ] P0-T1 — uv workspace + 10 packages + api/worker scaffold
-- [ ] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
-- [ ] P0-T3 — fixtures + `fake` profile skeleton
+- [x] P0-T1 — uv workspace + 10 packages + api/worker scaffold
+- [x] P0-T2 — docker-compose (Postgres + Azurite) + Next.js scaffold
+- [x] P0-T3 — fixtures + `fake` profile skeleton
 - [ ] P0-S0 — SPIKE: Azure credentials / liveness (gates all real-infra)
-- [ ] P0-S1 — SPIKE: yt-dlp
-- [ ] P0-S2 — SPIKE: ffmpeg
-- [ ] P0-S3 — SPIKE: pHash
+- [x] P0-S1 — SPIKE: yt-dlp
+- [x] P0-S2 — SPIKE: ffmpeg
+- [x] P0-S3 — SPIKE: pHash
 - [ ] P0-S4 — SPIKE: Azure Speech ASR
 - [ ] P0-S5 — SPIKE: Azure Vision / Document Intelligence OCR
 - [ ] P0-S6 — SPIKE: Azure OpenAI chat (Foundry)
 - [ ] P0-S7 — SPIKE: Azure OpenAI embeddings
 - [ ] P0-S8 — SPIKE: Azure Service Bus
-- [ ] P0-S9 — SPIKE: Postgres LISTEN/NOTIFY + advisory lock
+- [x] P0-S9 — SPIKE: Postgres LISTEN/NOTIFY + advisory lock
 - [ ] **P0 phase gate** — spikes green; smoke tests green; reviewer pass
 
 ### P1 — Contracts as code
-- [ ] P1-T1 — domain models + enums + state machine
-- [ ] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
-- [ ] P1-T3 — API request/response schemas + error envelope
-- [ ] P1-T4 — SSE event models
-- [ ] P1-T5 — storage Protocols + InMemory/Local impls + repos
-- [ ] P1-T6 — invariant module (C5)
-- [ ] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
+- [x] P1-T1 — domain models + enums + state machine
+- [x] P1-T2 — Alembic migration 0001 (full schema, up+down verified)
+- [x] P1-T3 — API request/response schemas + error envelope
+- [x] P1-T4 — SSE event models
+- [x] P1-T5 — storage Protocols + InMemory/Local impls + repos
+- [x] P1-T6 — invariant module (C5)
+- [x] **P1 phase gate** — `tests/contracts` green; migration up+down clean; reviewer pass
 
 ### P2 — MVP pipeline (fake)
-- [ ] F0-T1 — cookie sign/verify + `POST /login`
-- [ ] F1-T1 — `POST /jobs` + `GET /jobs/{id}`
-- [ ] F11-T1 — event writer + SSE endpoint + replay
-- [ ] P2-W1 — worker consumer + stage runner skeleton
-- [ ] F2-T1 (fake) — resolving + canonical claim + dedup
-- [ ] F4/F5/F6-T1 (fake) — media + transcript + visual stages
-- [ ] F8-T1 (fake) — segmenting (signals + fusion + refinement)
-- [ ] F9-T1 (fake) — drafting (scene selection + clip summary)
-- [ ] F10-T1 — initial note assembly + baseline version
-- [ ] P2-A1 — read endpoints (`GET /clips`, `GET /note`)
-- [ ] P2-E1 — `[TEST-E2E-MOCK]` submit → review_ready → GET note
-- [ ] **P2 phase gate** — mocked e2e green; invariants pass; coverage; reviewer pass
+- [x] F0-T1 — cookie sign/verify + `POST /login`
+- [x] F1-T1 — `POST /jobs` + `GET /jobs/{id}`
+- [x] F11-T1 — event writer + SSE endpoint + replay
+- [x] P2-W1 — worker consumer + stage runner skeleton
+- [x] F2-T1 (fake) — resolving + canonical claim + dedup
+- [x] F4/F5/F6-T1 (fake) — media + transcript + visual stages
+- [x] F8-T1 (fake) — segmenting (signals + fusion + refinement)
+- [x] F9-T1 (fake) — drafting (scene selection + clip summary)
+- [x] F10-T1 — initial note assembly + baseline version
+- [x] P2-A1 — read endpoints (`GET /clips`, `GET /note`)
+- [x] P2-E1 — `[TEST-E2E-MOCK]` submit → review_ready → GET note
+- [x] **P2 phase gate** — mocked e2e green; invariants pass; coverage; reviewer pass
 
 ### P3 — Real media + AI + style + cost
-- [ ] F3-T1 — per-artifact CAS claim/wait/recover
-- [ ] F2/F4-T2 (real) — resolvers + yt-dlp acquirer
+- [x] F3-T1 — per-artifact CAS claim/wait/recover
+- [x] F2/F4-T2 (real) — resolvers + yt-dlp acquirer
 - [ ] F5/F6-T2 (real) — transcript chain + ffmpeg/OCR/pHash
 - [ ] F8/F9-T2 (real) — Foundry chat + embeddings
-- [ ] F7-T1 — style extraction + resolution
-- [ ] F20-T1 — cost estimate + actuals
+- [x] F7-T1 — style extraction + resolution
+- [x] F20-T1 — cost estimate + actuals
 - [ ] P3-E1 — `[TEST-E2E-REAL]` tiny real video → review_ready (opt-in)
 - [ ] **P3 phase gate** — integration green; real-infra e2e green; reviewer pass
 
 ### P4 — Editing & reconciliation backend
-- [ ] F12-T1 — media serving + frame-on-demand
-- [ ] F13-T1 — `PATCH /clips/{id}` + auto-sync / needs_ack
-- [ ] F14-T1 — split / merge + placeholder values
-- [ ] F15-T1 — regenerate
-- [ ] F16-T1 — note autosave + content-selection flags
-- [ ] F17-T1 — rebuild / keep + flag state machine
-- [ ] F18-T1 — versioning (save / restore)
-- [ ] F19-T1 — export ZIP + projections
-- [ ] P4-E2 — `[TEST-E2E-MOCK]` full edit→review→export round-trip
-- [ ] **P4 phase gate** — mocked e2e (P2-E1+P4-E2) green; coverage; reviewer pass
+- [x] F12-T1 — media serving + frame-on-demand
+- [x] F13-T1 — `PATCH /clips/{id}` + auto-sync / needs_ack
+- [x] F14-T1 — split / merge + placeholder values
+- [x] F15-T1 — regenerate
+- [x] F16-T1 — note autosave + content-selection flags
+- [x] F17-T1 — rebuild / keep + flag state machine
+- [x] F18-T1 — versioning (save / restore)
+- [x] F19-T1 — export ZIP + projections
+- [x] P4-E2 — `[TEST-E2E-MOCK]` full edit→review→export round-trip
+- [x] **P4 phase gate** — mocked e2e (P2-E1+P4-E2) green; coverage; reviewer pass
 
 ### P5 — Frontend
-- [ ] F21-T1 — login + route gating
-- [ ] F22-T1 — submit form + depth + examples + cost banner
-- [ ] F23-T1 — edit SSE consumer + progressive lanes + gated tools
-- [ ] F23-T2 — split/merge/set-scene/regenerate + inspector + modal
-- [ ] F24-T1 — review doc editor + caption + content selector + versions + rebuild banner
-- [ ] F25-T1 — export page
-- [ ] P5-E1 — `[TEST-E2E]` Playwright journey (mocked backend)
-- [ ] **P5 phase gate** — component tests + Playwright green; coverage; reviewer pass
+- [x] F21-T1 — login + route gating
+- [x] F22-T1 — submit form + depth + examples + cost banner
+- [x] F23-T1 — edit SSE consumer + progressive lanes + gated tools
+- [x] F23-T2 — split/merge/set-scene/regenerate + inspector + modal
+- [x] F24-T1 — review doc editor + caption + content selector + versions + rebuild banner
+- [x] F25-T1 — export page
+- [x] P5-E1 — `[TEST-E2E]` Playwright journey (mocked backend)
+- [x] **P5 phase gate** — component tests + Playwright green; coverage; reviewer pass
 
 ### P6 — Infra, CI/CD, eval, real queue, docs
-- [ ] F26-T1 — Bicep modules + `azure.yaml` for `azd up`/`down`
+- [x] F26-T1 — Bicep modules + `azure.yaml` for `azd up`/`down`
 - [ ] F26-T2 — one-command lifecycle (`azd up` working env / `azd down` teardown)
 - [ ] F26-T3 — `[TEST-E2E-REAL]` deployed API journey (opt-in)
 - [ ] F26-T4 — `[TEST-E2E-REAL]` deployed browser journey (opt-in)
 - [ ] F27-T1 — GitHub Actions CI + CD (migrate/deploy)
 - [ ] F-SB-T1 — `ServiceBusQueue` + DLQ + duplicate-safe receive
-- [ ] F28-T1 — segmentation eval harness
+- [x] F28-T1 — segmentation eval harness
 - [ ] P6-E1 — `[TEST-E2E-REAL]` full real-infra e2e incl. real Service Bus (opt-in)
-- [ ] F29-T1 — `README.md` + top-level docs
+- [x] F29-T1 — `README.md` + top-level docs
 - [ ] P6-FINAL — `[TEST-E2E-REAL]` mandatory end-of-build real-infra acceptance run
 - [ ] **P6 final gate** — CI green; P6-FINAL green (`azd up`→full real suite→`azd down`); `docs/acceptance.md` recorded; reviewer pass
 
@@ -393,14 +393,14 @@ roll up the phase. (Each task block further down also carries its own granular s
 **Files:** `pyproject.toml`, `packages/*/pyproject.toml`, `packages/*/src/<pkg>/__init__.py`,
 `apps/api/...`, `worker/...`, `ruff.toml`, `mypy.ini`, `pytest.ini`.
 
-- [ ] Create root `pyproject.toml` declaring a `uv` workspace with members `packages/*`, `apps/api`,
+- [x] Create root `pyproject.toml` declaring a `uv` workspace with members `packages/*`, `apps/api`,
   `worker`. Each member depends on the `vtn_*` it needs (per spec: Repository structure dependency
   rules — `vtn_style` is depended on by `vtn_segment`+`vtn_notes`; packages never import the worker).
-- [ ] Each package exposes a `hello()` returning its name (placeholder to prove import wiring).
-- [ ] Write `tests/unit/test_imports.py` importing all 10 packages + asserting `vtn_segment` can
+- [x] Each package exposes a `hello()` returning its name (placeholder to prove import wiring).
+- [x] Write `tests/unit/test_imports.py` importing all 10 packages + asserting `vtn_segment` can
   import `vtn_style` but `vtn_style` cannot import `vtn_segment` (circular-import guard).
-- [ ] Run `uv sync && uv run pytest tests/unit/test_imports.py -q` → expect PASS.
-- [ ] `git commit -m "P0: uv workspace + package scaffold"`
+- [x] Run `uv sync && uv run pytest tests/unit/test_imports.py -q` → expect PASS.
+- [x] `git commit -m "P0: uv workspace + package scaffold"`
 
 **Acceptance:** `uv run pytest tests/unit/test_imports.py -q` exits 0; `uv run ruff check .` and
 `uv run mypy packages apps worker` exit 0. *(spec: Repository structure)*
@@ -409,13 +409,13 @@ roll up the phase. (Each task block further down also carries its own granular s
 
 **Files:** `docker-compose.yml`, `.env.example`, `apps/web/*`, `pnpm-workspace.yaml`.
 
-- [ ] `docker-compose.yml`: `postgres:16` (db `vtn`, exposes 5432) and `azurite` (blob port 10000).
-- [ ] `create-next-app` into `apps/web` (TS, App Router); add Vitest + Testing Library + Playwright.
-- [ ] Write `apps/web/__tests__/smoke.test.tsx` rendering a trivial component; `tests/integration/
+- [x] `docker-compose.yml`: `postgres:16` (db `vtn`, exposes 5432) and `azurite` (blob port 10000).
+- [x] `create-next-app` into `apps/web` (TS, App Router); add Vitest + Testing Library + Playwright.
+- [x] Write `apps/web/__tests__/smoke.test.tsx` rendering a trivial component; `tests/integration/
   test_db_up.py` connecting to Postgres and `SELECT 1`.
-- [ ] Run `docker compose up -d`, then `uv run pytest tests/integration/test_db_up.py -q` and
+- [x] Run `docker compose up -d`, then `uv run pytest tests/integration/test_db_up.py -q` and
   `pnpm -C apps/web test` → expect PASS.
-- [ ] `git commit -m "P0: docker-compose + Next.js scaffold"`
+- [x] `git commit -m "P0: docker-compose + Next.js scaffold"`
 
 **Acceptance:** `docker compose up -d` healthy; `SELECT 1` integration test exits 0; `pnpm test`
 smoke exits 0. *(spec: Local dev; Deployment and CI/CD)*
@@ -426,14 +426,14 @@ smoke exits 0. *(spec: Local dev; Deployment and CI/CD)*
 `fixtures/llm/{refinement,summary,style}.json`, `fixtures/examples/sample_note.md`,
 `packages/vtn_ai/src/vtn_ai/fake/__init__.py`, `packages/vtn_ai/src/vtn_ai/profile.py`.
 
-- [ ] Author canned fixtures: a ~5-span transcript, ~6 visual events (mixed types, with phash +
+- [x] Author canned fixtures: a ~5-span transcript, ~6 visual events (mixed types, with phash +
   ocr_text), and deterministic LLM JSON outputs matching the schemas defined in P1.
-- [ ] `FakeChatModel.complete_json(prompt, schema)` returns the matching fixture by a `kind` tag;
+- [x] `FakeChatModel.complete_json(prompt, schema)` returns the matching fixture by a `kind` tag;
   `FakeEmbeddingModel.embed(texts)` returns deterministic vectors (hash-seeded, no `random`).
-- [ ] `get_profile("fake")` returns the wired fake set (C4 table).
-- [ ] Test `tests/unit/test_fake_profile.py`: profile returns all 8 Protocols; fake chat returns
+- [x] `get_profile("fake")` returns the wired fake set (C4 table).
+- [x] Test `tests/unit/test_fake_profile.py`: profile returns all 8 Protocols; fake chat returns
   schema-valid JSON for each `kind`.
-- [ ] Run → PASS. `git commit -m "P0: fixtures + fake profile"`
+- [x] Run → PASS. `git commit -m "P0: fixtures + fake profile"`
 
 **Acceptance:** `uv run pytest tests/unit/test_fake_profile.py -q` exits 0; production packages
 contain no import of `tests/` or `fixtures/` (grep check in the test). *(spec: Local dev — `fake` AI
@@ -514,13 +514,13 @@ smoke tests green; independent-reviewer pass on the spike writeups vs the C4 con
 
 **Files:** `vtn_core/models.py`, `vtn_core/state_machine.py`, `tests/contracts/test_models.py`.
 
-- [ ] Define every C1 model as a Pydantic v2 class with the spec's columns/types and the enums.
-- [ ] `state_machine.legal_transition(from_stage, to_stage)` and `legal_status(from, to)` encoding
+- [x] Define every C1 model as a Pydantic v2 class with the spec's columns/types and the enums.
+- [x] `state_machine.legal_transition(from_stage, to_stage)` and `legal_status(from, to)` encoding
   spec: Job state machine (e.g. `queued→resolving→...→drafting`; `active→review_ready→exported`;
   `active→failed`; no `exported→active`).
-- [ ] Test: round-trip each model to/from dict; assert illegal transitions raise (e.g.
+- [x] Test: round-trip each model to/from dict; assert illegal transitions raise (e.g.
   `drafting→resolving`, `exported→active`); assert enums match spec literals exactly.
-- [ ] Run → PASS. `git commit -m "P1: domain models + state machine"`
+- [x] Run → PASS. `git commit -m "P1: domain models + state machine"`
 
 **Acceptance:** `uv run pytest tests/contracts/test_models.py -q` exits 0; mypy clean. *(spec: Domain
 model and job lifecycle; Data model)*
@@ -530,14 +530,14 @@ model and job lifecycle; Data model)*
 **Files:** `migrations/env.py`, `migrations/versions/0001_initial.py`,
 `tests/contracts/test_migration.py`.
 
-- [ ] Translate spec: Data model SQL verbatim into the migration `upgrade()` (all 12 tables + every
+- [x] Translate spec: Data model SQL verbatim into the migration `upgrade()` (all 12 tables + every
   index + every unique index + CHECK constraints + `gen_random_uuid()` default — enable `pgcrypto`).
   `downgrade()` drops them in FK order.
-- [ ] Test (real Postgres): `alembic upgrade head`; introspect that every table/column/constraint
+- [x] Test (real Postgres): `alembic upgrade head`; introspect that every table/column/constraint
   from the spec exists (assert `uq_videos_canonical`, `uq_spans_video_start`,
   `uq_visual_video_at_type`, `UNIQUE(job_id,order_index)`, `UNIQUE(job_id,seq)`, the single-row CHECK
   on `style_defaults`); then `alembic downgrade base` leaves zero `vtn` tables.
-- [ ] Run → PASS. `git commit -m "P1: migration 0001 initial schema"`
+- [x] Run → PASS. `git commit -m "P1: migration 0001 initial schema"`
 
 **Acceptance:** `alembic upgrade head` then `alembic downgrade base` both exit 0; introspection test
 finds all spec constraints. **Rollback verified.** *(spec: Data model; Migrations)*
@@ -547,14 +547,14 @@ finds all spec constraints. **Rollback verified.** *(spec: Data model; Migration
 **Files:** `apps/api/vtn_api/schemas.py`, `apps/api/vtn_api/errors.py`,
 `tests/contracts/test_api_schemas.py`.
 
-- [ ] Pydantic models for every endpoint body in C2 (spec: API contract): `LoginBody`, `CreateJob`,
+- [x] Pydantic models for every endpoint body in C2 (spec: API contract): `LoginBody`, `CreateJob`,
   `JobView`, `ClipView` (+ per-clip ETag), `ClipsView` (+ collection ETag), `NoteView`, `PatchClip`,
   `SplitBody`, `MergeBody`, `PutNote`, `PatchNote`, `VersionView`, `CreateVersion`, `ExportView`.
-- [ ] `errors.py`: `ApiError(code, message, http_status)` → JSON `{"error":{code,message}}`; a
+- [x] `errors.py`: `ApiError(code, message, http_status)` → JSON `{"error":{code,message}}`; a
   FastAPI exception handler; the C2 error-code constants.
-- [ ] Test: each schema validates a good payload and rejects a bad one with `validation_error`; the
+- [x] Test: each schema validates a good payload and rejects a bad one with `validation_error`; the
   error handler renders the exact envelope for each code.
-- [ ] Run → PASS. `git commit -m "P1: API schemas + error envelope"`
+- [x] Run → PASS. `git commit -m "P1: API schemas + error envelope"`
 
 **Acceptance:** `uv run pytest tests/contracts/test_api_schemas.py -q` exits 0; the envelope shape
 matches C2 byte-for-byte. *(spec: API contract)*
@@ -563,10 +563,10 @@ matches C2 byte-for-byte. *(spec: API contract)*
 
 **Files:** `apps/api/vtn_api/events.py`, `tests/contracts/test_events.py`.
 
-- [ ] One model per event `type` with the spec payloads; `to_sse(row)` renders
+- [x] One model per event `type` with the spec payloads; `to_sse(row)` renders
   `id: {job_events.id}\nevent: {type}\ndata: {json}\n\n`.
-- [ ] Test: each event type serializes to a well-formed SSE frame with an `id:` line for replay.
-- [ ] Run → PASS. `git commit -m "P1: SSE event models"`
+- [x] Test: each event type serializes to a well-formed SSE frame with an `id:` line for replay.
+- [x] Run → PASS. `git commit -m "P1: SSE event models"`
 
 **Acceptance:** test exits 0; every C3 event type covered. *(spec: Event contract)*
 
@@ -575,12 +575,12 @@ matches C2 byte-for-byte. *(spec: API contract)*
 **Files:** `vtn_storage/queue.py`, `vtn_storage/blob.py`, `vtn_storage/repos.py`,
 `tests/contracts/test_storage.py`.
 
-- [ ] `QueueProvider` + `InMemoryQueue` (and a SQLite-backed variant for the worker process);
+- [x] `QueueProvider` + `InMemoryQueue` (and a SQLite-backed variant for the worker process);
   `BlobStore` + `LocalBlobStore` (Azurite via connection string, or tmp). Repos = thin SQLAlchemy
   data-access objects per aggregate (jobs, videos, clips, notes, versions, events, costs, exports).
-- [ ] Test (real Postgres + Azurite): enqueue→receive→complete; dead_letter path; blob put→get→
+- [x] Test (real Postgres + Azurite): enqueue→receive→complete; dead_letter path; blob put→get→
   url_for→delete_prefix; a repo insert/select round-trip for `jobs`.
-- [ ] Run → PASS. `git commit -m "P1: storage protocols + impls + repos"`
+- [x] Run → PASS. `git commit -m "P1: storage protocols + impls + repos"`
 
 **Acceptance:** test exits 0 against Postgres+Azurite; `InMemoryQueue` and `ServiceBusQueue`
 (stubbed until P6) share the `QueueProvider` Protocol. *(spec: Queue abstraction; Architecture)*
@@ -589,12 +589,12 @@ matches C2 byte-for-byte. *(spec: API contract)*
 
 **Files:** `vtn_core/invariants.py`, `tests/contracts/test_invariants.py`.
 
-- [ ] Implement every assertion in C5 with precise checks (regex for transcript/regen markers,
+- [x] Implement every assertion in C5 with precise checks (regex for transcript/regen markers,
   contiguity over sorted clips, baseline uniqueness, export structure via `zipfile`).
-- [ ] Test: each assertion passes on a valid fixture and raises a typed `InvariantError` with a
+- [x] Test: each assertion passes on a valid fixture and raises a typed `InvariantError` with a
   clear message on a crafted violation (transcript leaked into markdown, duplicate order_index, two
   baselines, missing image, etc.).
-- [ ] Run → PASS. `git commit -m "P1: shared invariant module"`
+- [x] Run → PASS. `git commit -m "P1: shared invariant module"`
 
 **Acceptance:** `uv run pytest tests/contracts/test_invariants.py -q` exits 0; every invariant has a
 positive and a negative test. *(spec: Initial note assembly; Export format; Versioning)*

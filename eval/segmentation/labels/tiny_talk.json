@@ -1,0 +1,14 @@
+{
+  "id": "tiny_talk",
+  "tolerance_sec": 2.0,
+  "transcript_starts": [0.0, 9.0, 20.0, 31.0, 42.0],
+  "slide_times": [9.0, 20.0, 42.0],
+  "candidates": [
+    { "at_sec": 9.4, "signal_type": "slide_change", "strength": 0.9 },
+    { "at_sec": 10.2, "signal_type": "semantic_shift", "strength": 0.8 },
+    { "at_sec": 20.5, "signal_type": "title_change", "strength": 0.8 },
+    { "at_sec": 34.0, "signal_type": "time_gap", "strength": 0.4 },
+    { "at_sec": 42.2, "signal_type": "slide_change", "strength": 0.9 }
+  ],
+  "labeled_boundaries": [9.0, 20.0, 30.0, 42.0]
+}

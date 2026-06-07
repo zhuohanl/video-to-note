@@ -1,0 +1,7 @@
+{
+  "style_profile": {
+    "density": {"value": "balanced", "source": "examples"},
+    "tone": {"value": "practical", "source": "examples"},
+    "structure": {"value": "sections-with-screenshots", "source": "depth"}
+  }
+}

@@ -1,0 +1,32 @@
+[project]
+name = "vtn-worker"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "vtn-ai",
+    "vtn-core",
+    "vtn-export",
+    "vtn-ingest",
+    "vtn-notes",
+    "vtn-segment",
+    "vtn-storage",
+    "vtn-style",
+    "vtn-transcript",
+    "vtn-visual",
+]
+
+[tool.uv.sources]
+vtn-ai = { workspace = true }
+vtn-core = { workspace = true }
+vtn-export = { workspace = true }
+vtn-ingest = { workspace = true }
+vtn-notes = { workspace = true }
+vtn-segment = { workspace = true }
+vtn-storage = { workspace = true }
+vtn-style = { workspace = true }
+vtn-transcript = { workspace = true }
+vtn-visual = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

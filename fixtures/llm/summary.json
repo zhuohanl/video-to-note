@@ -1,0 +1,4 @@
+{
+  "title": "Architecture overview",
+  "summary": "The pipeline keeps the browser separate from the worker: worker -> db -> sse -> browser."
+}
