@@ -140,4 +140,5 @@ output webUrl string = apps.outputs.webUrl
 output resourceGroupName string = appResourceGroup.name
 output keyVaultName string = vault.outputs.name
 output postgresServerName string = postgres.outputs.serverName
+output serviceBusNamespace string = serviceBus.outputs.namespaceName
 output serviceBusQueueName string = serviceBus.outputs.queueName
